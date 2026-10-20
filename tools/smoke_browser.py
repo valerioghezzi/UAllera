@@ -1,6 +1,7 @@
 """Development-only browser check with synthetic files; Playwright is a CI dependency."""
 from pathlib import Path
 import io
+import os
 import sys
 import threading
 import zipfile
@@ -22,7 +23,7 @@ def main():
     errors=[];external=[]
     try:
         with engine(provider='lmstudio') as (fixture_config, fixture_calls), sync_playwright() as p:
-            browser=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox'])
+            browser=p.chromium.launch(channel=os.environ.get('UALLERA_BROWSER_CHANNEL','chrome') or None,headless=True,args=['--no-sandbox'])
             page=browser.new_page(accept_downloads=True)
             page.on('pageerror',lambda error:errors.append(str(error)))
             def route(request):
@@ -38,6 +39,7 @@ def main():
             assert page.input_value('#endpoint')=='http://127.0.0.1:1234'
             # A real tiny loopback fixture exercises browser configuration; it
             # performs no model inference and never validates linguistic quality.
+            page.locator('#advanced > summary').click()
             page.fill('#endpoint',fixture_config['endpoint'])
             page.fill('#model',fixture_config['model'])
             page.set_input_files('#zip',{'name':'Consegne_artificiali.zip','mimeType':'application/zip','buffer':data.getvalue()})

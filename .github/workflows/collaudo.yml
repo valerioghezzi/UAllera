@@ -49,7 +49,8 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import platform, subprocess
+          import platform, subprocess, sys
+          sys.path.insert(0,str(Path.cwd()))
           from tools.prepare_minerva import RUNTIMES, _download, _extract_runtime
           arch='ARM64' if platform.machine().lower() in ('arm64','aarch64') else 'x64'
           root=Path('.minerva-native').resolve(); root.mkdir()

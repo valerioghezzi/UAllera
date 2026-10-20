@@ -128,7 +128,13 @@ class ManagedMinervaTests(unittest.TestCase):
 
     def test_closing_app_stops_only_owned_engine(self):
         self.activate()
-        self.server.server_close()
+        thread_errors = []
+        with patch.object(threading, 'excepthook', side_effect=thread_errors.append):
+            self.server.shutdown()
+            self.thread.join(timeout=3)
+            self.assertFalse(self.thread.is_alive(), 'HTTP serving must stop before closing its socket')
+            self.server.server_close()
+        self.assertEqual([], thread_errors)
         self.process.terminate.assert_called_once()
 
     def test_dead_owned_engine_is_not_ready_and_managed_scan_is_refused(self):
@@ -140,11 +146,18 @@ class ManagedMinervaTests(unittest.TestCase):
         started = threading.Event(); release = threading.Event()
         def prepare(destination, architecture, progress):
             started.set(); release.wait(3); return 'fixture'
-        with patch.object(self.app.prepare_minerva, 'prepare', side_effect=prepare), patch.object(self.app.prepare_minerva, 'launch') as launch:
+        thread_errors = []
+        with patch.object(threading, 'excepthook', side_effect=thread_errors.append), patch.object(self.app.prepare_minerva, 'prepare', side_effect=prepare), patch.object(self.app.prepare_minerva, 'launch') as launch:
             self.assertEqual(202, self.request('POST', '/api/minerva/start', b'', self.auth())[0])
-            self.assertTrue(started.wait(2)); self.server.server_close(); release.set()
+            self.assertTrue(started.wait(2))
+            self.server.shutdown()
+            self.thread.join(timeout=3)
+            self.assertFalse(self.thread.is_alive(), 'HTTP serving must stop before closing its socket')
+            self.server.server_close()
+            release.set()
             self.server.minerva_worker.join(timeout=3)
             self.assertFalse(self.server.minerva_worker.is_alive()); launch.assert_not_called()
+        self.assertEqual([], thread_errors)
 
     def test_cancelled_audit_keeps_partial_report_downloadable_with_explicit_counts(self):
         result = {'html': '<h1>Rapporto incompleto</h1>', 'summary': dict(student_count=1,
