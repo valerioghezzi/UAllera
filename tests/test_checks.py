@@ -1,0 +1,167 @@
+import copy
+import math
+import unittest
+
+from jamovi_audit.checks import check_submission, _status_problem
+
+
+def omv(analyses=None):
+    return {'metadata': {}, 'columns': {}, 'analyses': analyses or [], 'errors': []}
+
+
+def desc(nodes, **options):
+    return {'id': 1, 'name': 'descriptives', 'ns': 'jmv', 'options': {'vars': ['O'], **options}, 'results': nodes}
+
+
+def image(name='boxplot', **kwargs):
+    return {'kind': 'image', 'name': name, 'path': ['O', name], 'title': name,
+            'visible': True, 'image_exists': True, 'image_path': 'plot.png', **kwargs}
+
+
+class ChecksTests(unittest.TestCase):
+    def check(self, data, document=None, reference=None):
+        return check_submission({'key': 'one', 'label': 'Rossi', 'omv': ['r.omv'], 'docx': ['r.docx']}, data, document, reference)
+
+    def finding(self, report, identifier):
+        return next(f for f in report['findings'] if f['id'] == identifier)
+
+    def test_option_without_saved_output_is_missing(self):
+        report = self.check(omv([desc([], box=True)]))
+        self.assertEqual('Mancante', self.finding(report, 'P3.O.boxplot')['status'])
+
+    def test_valid_image_is_verified_but_hidden_error_stale_and_missing_are_not(self):
+        for change in ({}, {'visible': False}, {'error': 'failed'}, {'stale': True}, {'image_exists': False}):
+            with self.subTest(change=change):
+                report = self.check(omv([desc([image(**change)])]))
+                status = self.finding(report, 'P3.O.boxplot')['status']
+                self.assertEqual(status == 'Verificato', not change)
+
+    def test_wrong_variable_output_does_not_satisfy_O(self):
+        report = self.check(omv([desc([image()], vars=['N'])]))
+        self.assertNotEqual('Verificato', self.finding(report, 'P3.O.boxplot')['status'])
+
+    def test_corrupt_input_is_not_missing_requirements(self):
+        report = self.check({'errors': ['unsupported'], 'analyses': [], 'columns': {}})
+        self.assertEqual('Non verificabile', self.finding(report, 'P3.O.boxplot')['status'])
+
+    def test_incomplete_pair_keeps_identity_and_seven_parts(self):
+        report = check_submission({'key': 'x', 'label': 'No OMV', 'omv': [], 'docx': ['x.docx']}, None, {'paragraphs': [], 'text': ''})
+        self.assertEqual('x', report['key'])
+        self.assertEqual(set(range(1, 8)), {f['part'] for f in report['findings'] if f['part']})
+        self.assertEqual('Mancante', self.finding(report, 'FILE.OMV')['status'])
+
+    def test_numeric_word_incompatibility_and_rounding(self):
+        ref = {'numeric_claims': [{'id': 'adult_n', 'part': 2, 'pattern': r'campione\s*(?:di|=)\s*(?P<value>\d+)', 'value': 906, 'location': 'dati/age', 'description': 'N adulti'}]}
+        for value, expected in [('907', 'Errato'), ('906', 'Verificato')]:
+            doc = {'paragraphs': [{'index': 4, 'text': 'Il campione di ' + value}], 'text': 'Il campione di ' + value}
+            report = self.check(omv(), doc, ref)
+            f = self.finding(report, 'WORD.NUM.adult_n')
+            self.assertEqual(expected, f['status'])
+            self.assertIn('4', f['location'])
+
+    def test_reverse_and_score_values_are_independently_checked(self):
+        data = omv()
+        data['columns'] = {n: {'meta': {}, 'data': vals, 'levels': []} for n, vals in {
+            'age': [17, 20, 42], 'A1': [1, 2, 3], 'A2': [2, 2, 2], 'A3': [3, 3, 3], 'A4': [4, 4, 4], 'A5': [5, 5, 5],
+            'A1_Rev': [6, 5, 4], 'A': [4, 3.8, 3.6], 'A_controllo': [4, 3.8, 9]}.items()}
+        report = self.check(data)
+        self.assertEqual('Verificato', self.finding(report, 'P2.A1_Rev.values')['status'])
+        self.assertEqual('Verificato', self.finding(report, 'P2.A.values')['status'])
+        self.assertEqual('Errato', self.finding(report, 'P2.A_controllo.values')['status'])
+
+    def test_questions_alone_are_not_verified_answers(self):
+        doc = {'text': 'Parte 1\nPerché gli item sono ordinali?', 'paragraphs': [{'index': 0, 'text': 'Perché gli item sono ordinali?'}]}
+        report = self.check(omv(), doc)
+        self.assertFalse(any(f['status'] == 'Verificato' for f in report['findings'] if f['source'] == 'Word' and f['id'].startswith('WORD.Q')))
+
+    def test_official_complete_enum_three_is_valid_error_four_is_not(self):
+        for status, expected in [(3, 'Verificato'), (4, 'Errato'), (2, 'Non verificabile'), (0, 'Non verificabile')]:
+            data=omv([desc([image(status=status)])])
+            self.assertEqual(expected,self.finding(self.check(data),'P3.O.boxplot')['status'])
+
+    def test_table_cannot_satisfy_a_required_graph(self):
+        node={'kind':'table','name':'desc','path':['desc'],'visible':True,'columns':[{'name':'dep','cells':['N']},{'name':'mean[1]','cells':[3.]},{'name':'mean[2]','cells':[4.]}]}
+        data=omv([{'id':1,'name':'ttestIS','options':{'vars':['N'],'group':'gender'},'results':[node]}])
+        self.assertNotEqual('Verificato',self.finding(self.check(data),'P5.N.plot')['status'])
+
+    def test_frequency_variable_can_be_identified_in_array_path(self):
+        node={'kind':'table','name':'gender','path':['frequencies','gender'],'columns':[{'name':'counts','cells':[400,506]}]}
+        data=omv([desc([node],vars=['gender'])])
+        self.assertEqual('Verificato',self.finding(self.check(data),'P3.gender.freq')['status'])
+
+    def test_reliability_item_table_requires_every_item_row(self):
+        node={'kind':'table','name':'items','path':['items'],'columns':[{'name':'name','cells':['N1']},{'name':'itemRestCor','cells':[.4]}]}
+        data=omv([{'id':1,'name':'reliability','options':{'vars':['N1','N2','N3','N4','N5']},'results':[node]}])
+        self.assertNotEqual('Verificato',self.finding(self.check(data),'P7.N.items.itemRestCor')['status'])
+
+    def test_unknown_module_is_not_treated_as_supported_missing(self):
+        data=omv([{'name':'descriptives','ns':'custom-unrecognized','options':{'vars':['O']},'results':[]}])
+        self.assertEqual('Non verificabile',self.finding(self.check(data),'P3.O.boxplot')['status'])
+
+    def test_saved_score_provenance_requires_linked_reliability_not_column_name(self):
+        data=omv([{'id':8,'name':'reliability','ns':'jmv','status':3,'options':{'vars':['N1','N2','N3','N4','N5']},'results':[]}])
+        data['columns']['N']={'meta':{'outputAnalysisId':8,'outputOptionName':'meanScoreOV'},'data':[3.]}
+        self.assertEqual('Verificato',self.finding(self.check(data),'P2.N.provenance')['status'])
+        data['columns']['N']['meta']['outputAnalysisId']=99
+        self.assertEqual('Non verificabile',self.finding(self.check(data),'P2.N.provenance')['status'])
+
+    def test_explicit_word_format_errors_and_resolved_good_format(self):
+        for fmt,status in [({'issues':[],'unknown':[],'complete':True,'runs_checked':4},'Verificato'),({'issues':['font=Arial'],'unknown':[],'complete':True},'Errato'),({'issues':[],'unknown':['font unresolved'],'complete':False},'Non verificabile')]:
+            self.assertEqual(status,self.finding(self.check(omv(),{'formatting':fmt,'paragraphs':[]}),'WORD.format')['status'])
+
+    def test_unambiguous_word_sample_claim_compares_own_data_without_reference(self):
+        data=omv();data['columns']={'age':{'data':[17,18,40], 'meta':{}}}
+        doc={'paragraphs':[{'index':2,'text':'Il campione adulto è composto da 3 persone.'}]}
+        f=self.finding(self.check(data,doc),'WORD.NUM.adult_n')
+        self.assertEqual('Errato',f['status'])
+        self.assertIn('2',f['expected'])
+
+    def test_numeric_claim_inside_word_table_is_checked_with_cell_location(self):
+        ref={'numeric_claims':[{'id':'test','part':4,'pattern':r'Tscore_N\s*=\s*(?P<value>\d+,\d+)', 'value':62.368421}]}
+        doc={'paragraphs':[],'tables':[{'index':0,'rows':[['Tscore_N = 62,37']]}]}
+        f=self.finding(self.check(omv(),doc,ref),'WORD.NUM.test')
+        self.assertEqual('Verificato',f['status'])
+        self.assertIn('cella',f['location'])
+
+    def test_completed_image_raw_stale_not_applicable_verifies_presence_only(self):
+        data=omv([desc([image(status=3,stale=True,stale_applicable=False)])])
+        result=self.check(data)
+        f=self.finding(result,'P3.O.boxplot')
+        self.assertEqual('Verificato',f['status'])
+        self.assertEqual('Non verificabile',self.finding(result,'P3.O.boxplot.freshness')['status'])
+        self.assertIn('aggiornamento',self.finding(result,'P3.O.boxplot.freshness')['requirement'].lower())
+
+    def test_completed_table_raw_stale_not_applicable_verifies_presence_only(self):
+        node={'kind':'table','name':'descriptives','path':['descriptives'],'status':3,'stale':True,'stale_applicable':False,
+              'columns':[{'name':'name','cells':['O']},{'name':'mean','cells':[4.]}]}
+        result=self.check(omv([desc([node])]))
+        self.assertEqual('Verificato',self.finding(result,'P3.O.mean')['status'])
+        self.assertEqual('Non verificabile',self.finding(result,'P3.O.mean.freshness')['status'])
+
+    def test_applicable_stale_still_blocks_textual_result(self):
+        for kind in ('html','preformatted','notice','syntax'):
+            with self.subTest(kind=kind):
+                self.assertEqual('Non verificabile',_status_problem({'kind':kind,'status':3,'stale':True,'stale_applicable':True})[0])
+
+    def test_sample_z_does_not_reject_correct_filtered_out_missing_rows(self):
+        data=omv();data['columns']={n:{'meta':{},'data':v} for n,v in {'age':[17,18,40],'N':[6,3,5],'Zscore_N':[None,-1/math.sqrt(2),1/math.sqrt(2)]}.items()}
+        f=self.finding(self.check(data),'P4.Zscore_N.values')
+        self.assertEqual('Verificato',f['status'])
+        self.assertIn('Confrontate 2 righe',f['observed'])
+        data['columns']['Zscore_N']['data'][1]=1
+        self.assertEqual('Errato',self.finding(self.check(data),'P4.Zscore_N.values')['status'])
+
+    def test_original_lowercase_id_is_supported_with_actual_source_path(self):
+        data=omv();data['columns']['id']={'meta':{'measureType':'ID'},'data':[61789]}
+        f=self.finding(self.check(data),'P1.ID.column')
+        self.assertEqual('Verificato',f['status'])
+        self.assertEqual('dati/id',f['location'])
+
+    def test_original_decimal_id_resolves_own_T_claim(self):
+        data=omv();data['columns']={'id':{'meta':{'measureType':'ID'},'data':[61789.0]},'Tscore_N':{'meta':{},'data':[62.36842105263158]}}
+        doc={'paragraphs':[{'index':4,'text':'Per ID 61789 il punteggio T = 62,37.'}]}
+        self.assertEqual('Verificato',self.finding(self.check(data,doc),'WORD.NUM.T_ID_61789')['status'])
+
+
+if __name__ == '__main__':
+    unittest.main()

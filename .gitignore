@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+runtime/
+dist/
+.superpowers/
+*.log
