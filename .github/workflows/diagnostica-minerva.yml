@@ -1,0 +1,86 @@
+name: Diagnostica avvio Minerva Windows
+on:
+  push:
+    branches: [feature/minerva-diagnostica]
+    paths: [.github/workflows/diagnostica-minerva.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          architecture: x64
+      - name: Istruzioni CPU effettive del runner
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force diagnostic_artifacts | Out-Null
+          $leaf1 = [System.Runtime.Intrinsics.X86.X86Base]::CpuId(1,0)
+          $leaf7 = [System.Runtime.Intrinsics.X86.X86Base]::CpuId(7,0)
+          $cpu = Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors
+          $facts = @{ processor=$cpu; avx=[System.Runtime.Intrinsics.X86.Avx]::IsSupported; avx2=[System.Runtime.Intrinsics.X86.Avx2]::IsSupported; fma=[System.Runtime.Intrinsics.X86.Fma]::IsSupported; bmi2=[System.Runtime.Intrinsics.X86.Bmi2]::IsSupported; sse42=[System.Runtime.Intrinsics.X86.Sse42]::IsSupported; cpuid_f16c=[bool]($leaf1.Item3 -band (1 -shl 29)); cpuid_fma=[bool]($leaf1.Item3 -band (1 -shl 12)); cpuid_avx2=[bool]($leaf7.Item2 -band (1 -shl 5)); cpuid_bmi2=[bool]($leaf7.Item2 -band (1 -shl 8)) }
+          $facts | ConvertTo-Json -Depth 5 | Set-Content diagnostic_artifacts/CPU.json -Encoding utf8
+          $facts | ConvertTo-Json -Depth 5
+      - name: Riproduci avvio con log nativo redatto
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, secrets, socket, subprocess, sys, time
+          sys.path.insert(0,str(Path.cwd()))
+          from tools.prepare_minerva import prepare, MODEL_ALIAS, RUNTIMES, _download, _extract_runtime
+          root=Path('diagnostic_artifacts');root.mkdir(exist_ok=True)
+          backend_root=Path('.backend-diagnostic').resolve();backend_root.mkdir()
+          asset=RUNTIMES['x64'];archive=backend_root/asset.name
+          _download(archive,asset,None)
+          folder=backend_root/'engine';_extract_runtime(backend_root,folder,archive,'x64')
+          backend=subprocess.run([str(folder/'llama-server.exe'),'--list-devices'],cwd=folder,capture_output=True,timeout=60)
+          backend_facts={'status':'backend_probe','returncode':backend.returncode,'hex_returncode':hex(backend.returncode & 0xffffffff),'model_loaded':False}
+          backend_log=(backend.stdout+backend.stderr).decode('utf-8',errors='replace')
+          (root/'Backend.json').write_text(json.dumps(backend_facts,indent=2),encoding='utf-8')
+          (root/'List_devices.log').write_text(backend_log,encoding='utf-8')
+          print(json.dumps(backend_facts));print(backend_log)
+          if backend.returncode!=0:raise SystemExit(0)
+          prepared=prepare(Path('.minerva-diagnostic'),'x64')
+          secret=secrets.token_urlsafe(32)
+          with socket.socket() as socket_:socket_.bind(('127.0.0.1',0));port=socket_.getsockname()[1]
+          command=[str(prepared.executable_path),'--model',str(prepared.model_path),'--host','127.0.0.1','--port',str(port),'--ctx-size','4096','--parallel','1','--alias',MODEL_ALIAS,'--offline','--no-webui','--jinja','--chat-template-file',str(prepared.template_path),'--api-key',secret]
+          raw=root/'temporary-native-log.bin';process=None;facts={'status':'not_completed'}
+          before=time.monotonic()
+          try:
+              with raw.open('wb') as output:
+                  process=subprocess.Popen(command,cwd=prepared.executable_path.parent,stdout=output,stderr=subprocess.STDOUT)
+                  try:
+                      code=process.wait(timeout=150)
+                      facts={'status':'exited','returncode':code,'hex_returncode':hex(code & 0xffffffff)}
+                  except subprocess.TimeoutExpired:
+                      facts={'status':'still_running_after_150_seconds'}
+          except Exception as error:
+              facts={'status':'failed','exception_type':type(error).__name__}
+          finally:
+              if process is not None and process.poll() is None:
+                  process.terminate()
+                  try:process.wait(timeout=5)
+                  except subprocess.TimeoutExpired:process.kill();process.wait(timeout=5)
+              if raw.exists():
+                  log=raw.read_bytes().decode('utf-8',errors='replace').replace(secret,'[internal capability removed]')[-131072:]
+                  (root/'Native_redacted.log').write_text(log,encoding='utf-8');raw.unlink()
+                  print(log[-16000:],flush=True)
+              facts['seconds']=round(time.monotonic()-before,3)
+              (root/'Esito.json').write_text(json.dumps(facts,indent=2),encoding='utf-8')
+              print(json.dumps(facts),flush=True)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Diagnostica-Minerva-x64
+          path: |
+            diagnostic_artifacts/CPU.json
+            diagnostic_artifacts/Backend.json
+            diagnostic_artifacts/Esito.json
+            diagnostic_artifacts/Native_redacted.log
+            diagnostic_artifacts/List_devices.log
+          retention-days: 7
