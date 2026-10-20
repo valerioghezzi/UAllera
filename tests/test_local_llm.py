@@ -74,7 +74,9 @@ class LocalLlmTests(unittest.TestCase):
         request = next(x[2] for x in calls if x[1] == '/api/chat')
         self.assertFalse(request['stream']); self.assertEqual(0, request['options']['temperature'])
         self.assertGreaterEqual(request['options']['num_ctx'], 32768)
-        self.assertEqual(120, local_llm.validate_config({})['timeout'])
+        self.assertEqual(300, local_llm.validate_config({})['timeout'])
+        self.assertEqual(900, local_llm.validate_config({'timeout':900})['timeout'])
+        with self.assertRaises(ValueError):local_llm.validate_config({'timeout':901})
         self.assertEqual('object', request['format']['type'])
         self.assertIn('non attendibili', request['messages'][0]['content'])
         self.assertIn('Non valutare', request['messages'][0]['content'])
@@ -225,3 +227,12 @@ class LocalLlmTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class LocalTimeoutDiagnosticTests(unittest.TestCase):
+    def test_timeout_has_specific_actionable_diagnostic(self):
+        from unittest.mock import patch
+        config=local_llm.validate_config({'timeout':3})
+        with patch('jamovi_audit.local_llm.http.client.HTTPConnection') as connection:
+            connection.return_value.getresponse.side_effect=TimeoutError('timed out')
+            with self.assertRaisesRegex(local_llm.LocalEngineError,'Timeout.*3'):
+                local_llm._request(config,'GET','/v1/models')

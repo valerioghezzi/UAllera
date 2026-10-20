@@ -45,9 +45,21 @@ def main():
             assert html.count('<html')==1
             assert not errors,errors
             assert not external,external
+            page.select_option('#provider','ollama')
+            page.fill('#model','modello-non-installato-per-test')
+            page.click('#validate')
+            page.locator('#download').wait_for(state='visible',timeout=30000)
+            with page.expect_download() as validation_download:page.click('#download')
+            checked=validation_download.value
+            assert checked.suggested_filename=='Validazione_modello.html'
+            validation_html=Path(checked.path()).read_text(encoding='utf-8')
+            assert 'Validazione linguistica' in validation_html
+            assert 'Non disponibile' in validation_html
+            assert not errors,errors
+            assert not external,external
             page.click('#exit')
             browser.close()
-        print('Browser: ZIP caricato, 2 studenti, rapporto unico scaricato, nessun errore JS o richiesta esterna.')
+        print('Browser: ZIP caricato, 2 studenti, rapporto unico scaricato, validazione modello e fallback verificati, nessun errore JS o richiesta esterna.')
     finally:
         server.shutdown();server.server_close();thread.join(timeout=3)
 
