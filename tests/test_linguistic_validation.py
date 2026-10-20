@@ -69,3 +69,5 @@ class LinguisticValidationTests(unittest.TestCase):
         self.assertNotIn('<script>',html);self.assertIn('&lt;script&gt;',html)
         self.assertIn('Non misura',html);self.assertIn('frode',html.lower())
         self.assertEqual(html.count('<html'),1)
+        self.assertIn(r['evaluation_profile'],html)
+        self.assertIn('documento intero',html)

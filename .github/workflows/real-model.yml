@@ -1,0 +1,28 @@
+name: Prova modello reale locale
+on:
+  push:
+    branches: [feature/chiusura-prova]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Test software prima del modello
+        run: python -S -m unittest discover -s tests -v
+      - name: Due Word con sintesi limitata e inferenza CPU effettiva
+        timeout-minutes: 27
+        run: python -u tools/ci_real_model.py --pipeline-only --output pipeline_artifacts
+      - name: Conserva rapporti e risposte effettive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prova-documenti-limitata
+          path: pipeline_artifacts/
+          retention-days: 3
