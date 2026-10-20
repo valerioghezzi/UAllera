@@ -502,7 +502,16 @@ def assess_relation(docx, report, reference=None, config=None, cancelled=None, *
             if not shown or _remote_metadata(shown):
                 raise LocalEngineError('Modello Ollama remoto o metadati locali non verificabili: richiesta rifiutata.')
         context, citations = _context(docx, report, reference, normalized['max_input_chars'], result['limits'])
-        system, schema, max_tokens = _SYSTEM, _SCHEMA, 6000
+        # The full review is a bounded summary, not an open-ended list. The
+        # previous 56-item/6000-token response exceeded real CPU deadlines.
+        system = _SYSTEM.replace('al massimo 56 osservazioni', 'al massimo 7 osservazioni')
+        system += '\nRestituisci al massimo una sintesi per ciascuna parte: riporta prima un errore esplicito, poi una mancanza, poi un contenuto coerente. Non ripetere parti. Mantieni ogni campo breve. La sintesi non esaurisce tutti gli errori del documento.'
+        schema = copy.deepcopy(_SCHEMA)
+        schema['properties']['findings']['maxItems'] = 7
+        full_fields = schema['properties']['findings']['items']['properties']
+        for key, cap in [('requirement', 100), ('quote', 300), ('location', 120), ('explanation', 160), ('expected', 100)]:
+            full_fields[key]['maxLength'] = cap
+        max_tokens = 2048
         if target_part is not None:
             # The app chooses the scope, never the submitted document. Keep this
             # separate from untrusted reference text and do not include keys.
@@ -556,7 +565,23 @@ def assess_relation(docx, report, reference=None, config=None, cancelled=None, *
             else:
                 result['findings'] = _proposals(value, citations)
         else:
-            result['findings'] = _proposals(value, citations)
+            rows = value.get('findings')
+            valid_full = isinstance(rows, list) and len(rows) <= 7
+            parts = set()
+            for item in rows if valid_full else []:
+                if (not isinstance(item, dict) or set(item) != set(full_fields) or
+                    type(item.get('part')) is not int or not 1 <= item['part'] <= 7 or item['part'] in parts or
+                    not all(isinstance(item.get(k), str) and len(item[k]) <= spec.get('maxLength', 6000)
+                            for k, spec in full_fields.items() if k != 'part')):
+                    valid_full = False
+                    break
+                parts.add(item['part'])
+            result['limits'].append('Sintesi linguistica limitata a sette osservazioni, al massimo una per parte; non è un elenco completo degli errori. Profilo documento-seven-1.2.')
+            if valid_full:
+                result['findings'] = _proposals(value, citations)
+            else:
+                result['findings'] = _unassessed(range(1, 8), 'Risposta ricevuta ma sintesi fuori dai limiti o con parti duplicate; giudizi scartati.')
+                result['limits'].append('Risposta fuori dallo schema della sintesi: nessun giudizio utilizzabile.')
         result['status'] = 'complete'
     except InterruptedError:
         result['status'] = 'cancelled'

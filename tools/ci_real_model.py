@@ -85,16 +85,32 @@ def synthetic_delivery():
     return archive(entries)
 
 
-def main():
+def verify_pipeline(report):
+    """Do not call a finished request a passed semantic demonstration."""
+    assert len(report['reports']) == 2
+    for row, expected in zip(report['reports'], ('coerente', 'errata')):
+        review = row['linguistic']
+        assert review['status'] == 'complete', 'Full-document model request did not complete'
+        assert any(f.get('part') == 6 and f.get('proposal') == expected and f.get('quote')
+                   for f in review['findings']), 'The model did not correctly distinguish the two synthetic causality statements'
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=Path('validation_artifacts'))
     parser.add_argument('--limit', type=int, default=70)
     parser.add_argument('--assets', type=Path, default=Path('.real-model-assets'))
-    args = parser.parse_args()
-    if platform.system() != 'Linux' or platform.machine().lower() not in ('x86_64', 'amd64'):
-        parser.error('Development-only test requires Linux x64')
+    parser.add_argument('--pipeline-only', action='store_true', help='Repeat only the two complete Word reviews; preserve the 70-case baseline separately.')
+    args = parser.parse_args(argv)
     if not 1 <= args.limit <= 70:
         parser.error('--limit must be 1..70')
+    return args
+
+
+def main():
+    args = parse_args()
+    if platform.system() != 'Linux' or platform.machine().lower() not in ('x86_64', 'amd64'):
+        raise SystemExit('Development-only test requires Linux x64')
     args.output.mkdir(parents=True, exist_ok=True)
     args.assets.mkdir(parents=True, exist_ok=True)
     model = args.assets / 'qwen2.5-1.5b-instruct-q4_k_m.gguf'
@@ -113,7 +129,7 @@ def main():
                   'scope': 'Public synthetic data only; inference on a literal loopback CPU server.'}
     (args.output / 'Provenienza.json').write_text(json.dumps(provenance, indent=2))
     config = {'enabled': True, 'provider': 'llamacpp', 'endpoint': 'http://127.0.0.1:8199',
-              'model': 'qwen2.5-1.5b-q4-local', 'timeout': 900}
+              'model': 'qwen2.5-1.5b-q4-local', 'timeout': 600 if args.pipeline_only else 900}
     with (args.output / 'llama_server.log').open('w') as log:
         process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
         try:
@@ -145,26 +161,27 @@ def main():
                         audit.write(json.dumps(row, ensure_ascii=False) + '\n')
                 return response
             local_llm._request = record
-            completed = []
-            original_assess = validation.assess_relation
-            def checkpoint(*a, **kw):
-                response = original_assess(*a, **kw)
-                completed.append(response)
-                (args.output / 'Giudizi_progressivi.json').write_text(json.dumps(completed, ensure_ascii=False, indent=2))
-                print('REAL RESPONSE', len(completed), response['status'],
-                      [(f['part'], f.get('proposal')) for f in response['findings']], flush=True)
-                return response
-            validation.assess_relation = checkpoint
-            from jamovi_audit.validation_cases import VALIDATION_CASES
-            result = validation.run_validation(config, cases=VALIDATION_CASES[:args.limit],
-                progress=lambda done,total,label: print(f'{done}/{total}: {label}', flush=True))
-            result['runtime'] = provenance
-            (args.output / 'Validazione_reale.json').write_text(json.dumps(result, ensure_ascii=False, indent=2))
-            (args.output / 'Validazione_reale.html').write_text(validation.render_validation(result))
-            print('REAL MODEL METRICS', json.dumps({k: result[k] for k in ('status','planned','attempted','evaluated','seconds','metrics')}), flush=True)
-            if result['status'] != 'complete' or result['attempted'] != args.limit:
-                raise RuntimeError('Incomplete real-model benchmark: inspect report')
-            validation.assess_relation = original_assess
+            if not args.pipeline_only:
+                completed = []
+                original_assess = validation.assess_relation
+                def checkpoint(*a, **kw):
+                    response = original_assess(*a, **kw)
+                    completed.append(response)
+                    (args.output / 'Giudizi_progressivi.json').write_text(json.dumps(completed, ensure_ascii=False, indent=2))
+                    print('REAL RESPONSE', len(completed), response['status'],
+                          [(f['part'], f.get('proposal')) for f in response['findings']], flush=True)
+                    return response
+                validation.assess_relation = checkpoint
+                from jamovi_audit.validation_cases import VALIDATION_CASES
+                result = validation.run_validation(config, cases=VALIDATION_CASES[:args.limit],
+                    progress=lambda done,total,label: print(f'{done}/{total}: {label}', flush=True))
+                result['runtime'] = provenance
+                (args.output / 'Validazione_reale.json').write_text(json.dumps(result, ensure_ascii=False, indent=2))
+                (args.output / 'Validazione_reale.html').write_text(validation.render_validation(result))
+                print('REAL MODEL METRICS', json.dumps({k: result[k] for k in ('status','planned','attempted','evaluated','seconds','metrics')}), flush=True)
+                if result['status'] != 'complete' or result['attempted'] != args.limit:
+                    raise RuntimeError('Incomplete real-model benchmark: inspect report')
+                validation.assess_relation = original_assess
             data = synthetic_delivery()
             (args.output / 'Consegne_demo_linguistiche.zip').write_bytes(data)
             report = audit_zip(data, linguistic_config=config,
@@ -177,7 +194,7 @@ def main():
             for row in report['reports']:
                 print('CITABLE FULL DOCUMENT PROPOSALS', row['label'],
                       sum(bool(f.get('proposal')) for f in row['linguistic']['findings']), flush=True)
-            assert all(r['linguistic']['status'] == 'complete' for r in report['reports']), 'Full-document model requests did not complete; inspect saved report'
+            verify_pipeline(report)
         finally:
             process.terminate()
             try:

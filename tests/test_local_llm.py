@@ -107,6 +107,25 @@ class LocalLlmTests(unittest.TestCase):
         self.assertEqual({6}, {f['part'] for f in result['findings']})
         self.assertEqual('coerente', result['findings'][0]['proposal'])
 
+    def test_full_document_has_a_bounded_summary_for_each_part(self):
+        with engine('llamacpp', {'findings': [self.proposal]}) as (config, calls):
+            result = local_llm.assess_relation(self.document, {}, config=config)
+        body = next(x[2] for x in calls if x[1] == '/v1/chat/completions')
+        schema = body['response_format']['json_schema']['schema']['properties']['findings']
+        self.assertEqual(7, schema['maxItems'])
+        self.assertLessEqual(body['max_tokens'], 2048)
+        self.assertNotIn('56 osservazioni', body['messages'][0]['content'])
+        for key in ('requirement', 'quote', 'location', 'explanation', 'expected'):
+            self.assertLessEqual(schema['items']['properties'][key]['maxLength'], 300)
+        self.assertEqual('coerente', next(f for f in result['findings'] if f['part'] == 6)['proposal'])
+
+    def test_full_document_discards_duplicate_parts_and_unbounded_fields(self):
+        for rows in ([self.proposal, self.proposal], [{**self.proposal, 'explanation': 'x' * 301}]):
+            with self.subTest(rows=rows), engine(response={'findings': rows}) as (config, _):
+                result = local_llm.assess_relation(self.document, {}, config=config)
+            self.assertFalse(any(f.get('proposal') for f in result['findings']))
+            self.assertEqual(set(range(1, 8)), {f['part'] for f in result['findings']})
+
     def test_single_question_scope_cannot_accept_a_different_part(self):
         with engine(response={'findings': [self.proposal]}) as (config, _):
             result = local_llm.assess_relation(self.document, {}, config=config,
