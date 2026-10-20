@@ -41,7 +41,10 @@ jobs:
       - name: Configura librerie integrate senza OpenMP o HTTPS
         shell: pwsh
         run: |
-          cmake -S native-source -B native-build -A ${{ matrix.cmake_architecture }} -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DBUILD_SHARED_LIBS=OFF -DGGML_BACKEND_DL=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_OPENMP_FETCH=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_NUMBER=11756 -DLLAMA_BUILD_COMMIT=d80619397 -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_CONNECT=OFF
+          $native = if ('${{ matrix.architecture }}' -eq 'ARM64') { 'ON' } else { 'OFF' }
+          $baseline = @()
+          if ('${{ matrix.architecture }}' -eq 'ARM64') { $baseline = @('-DGGML_MACHINE_SUPPORTS_dotprod:BOOL=FALSE','-DGGML_MACHINE_SUPPORTS_i8mm:BOOL=FALSE','-DGGML_MACHINE_SUPPORTS_sve:BOOL=FALSE','-DGGML_MACHINE_SUPPORTS_sme:BOOL=FALSE') }
+          cmake -S native-source -B native-build -A ${{ matrix.cmake_architecture }} -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DBUILD_SHARED_LIBS=OFF -DGGML_BACKEND_DL=OFF -DGGML_NATIVE=$native @baseline -DGGML_OPENMP=OFF -DGGML_OPENMP_FETCH=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_NUMBER=11756 -DLLAMA_BUILD_COMMIT=d80619397 -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_CONNECT=OFF
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compila soltanto il motore
         run: cmake --build native-build --config Release --target llama-server --parallel 4
@@ -62,13 +65,25 @@ jobs:
           from pathlib import Path
           import hashlib, json, platform, subprocess, zipfile
           architecture='${{ matrix.architecture }}'
+          cache={}
+          for line in Path('native-build/CMakeCache.txt').read_text(encoding='utf-8').splitlines():
+              if ':' in line and '=' in line and not line.startswith(('#','//')):
+                  key,value=line.split('=',1);cache[key.split(':',1)[0]]=value
+          cpu_features={key:cache.get(key) for key in ('HAVE_DOTPROD','HAVE_MATMUL_INT8','HAVE_SVE','HAVE_SME','HAVE_FMA','HAVE_FP16_VECTOR_ARITHMETIC')}
+          if architecture=='ARM64':
+              for key in ('HAVE_DOTPROD','HAVE_MATMUL_INT8','HAVE_SVE','HAVE_SME','HAVE_FP16_VECTOR_ARITHMETIC'):
+                  assert key in cache and cache[key].upper() in ('','0','FALSE','OFF','NO'),(key,cache.get(key))
           source=Path('native-source')
           license_candidates=[p for p in source.rglob('*') if p.is_file() and p.name.lower().startswith(('license','copying','notice')) and '.git' not in p.parts]
           notices=Path('engine/ThirdPartyNotices'); notices.mkdir()
           for path in license_candidates:
               target=notices/path.relative_to(source)
               target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(path.read_bytes())
-          provenance={'upstream':'https://github.com/ggml-org/llama.cpp','source_commit':'d80619397c2ba5cf1366c29f7d43699ca3a159b9','version':'b11756','architecture':architecture,'platform':platform.platform(),'build_run':'${{ github.run_id }}','build_commit':'${{ github.sha }}','msvc_runtime':'MultiThreaded','openmp':False,'openssl':False,'shared_libraries':False,'version_output':subprocess.check_output(['engine/llama-server.exe','--version'],stderr=subprocess.STDOUT,text=True).strip(),'scope':'CPU engine only. No model weights, inference, or student data.'}
+          for relative in ('vendor/sheredom/subprocess.h','vendor/stb/stb_image.h','vendor/miniaudio/miniaudio.h','ggml/src/ggml-cpu/llamafile/sgemm.cpp'):
+              path=source/relative
+              target=notices/relative
+              target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(path.read_bytes())
+          provenance={'upstream':'https://github.com/ggml-org/llama.cpp','source_commit':'d80619397c2ba5cf1366c29f7d43699ca3a159b9','version':'b11756','architecture':architecture,'platform':platform.platform(),'build_run':'${{ github.run_id }}','build_commit':'${{ github.sha }}','msvc_runtime':'MultiThreaded','openmp':False,'openssl':False,'shared_libraries':False,'cpu_profile':('ARMv8-A baseline with optional dotprod/i8mm/SVE/SME disabled' if architecture=='ARM64' else 'x64 with AVX2/FMA/F16C/BMI2'),'cpu_feature_checks':cpu_features,'version_output':subprocess.check_output(['engine/llama-server.exe','--version'],stderr=subprocess.STDOUT,text=True).strip(),'scope':'CPU engine only. No model weights, inference, or student data.'}
           Path('engine/Provenance.json').write_text(json.dumps(provenance,indent=2),encoding='utf-8')
           bundle=Path('artifacts')/('llama-b11756-uallera-static-win-'+architecture+'.zip')
           with zipfile.ZipFile(bundle,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as output:
