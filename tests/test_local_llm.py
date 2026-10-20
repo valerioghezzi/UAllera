@@ -152,6 +152,43 @@ class LocalLlmTests(unittest.TestCase):
         self.assertIn('Parte sette: il SEM quantifica errore.', prompt)
         self.assertTrue(any('tronc' in warning.lower() for warning in result['limits']))
 
+    def test_saved_statistical_context_filters_and_retains_values(self):
+        table = {'kind': 'table', 'name': 'ttest', 'path': ['ttest'], 'status': 3, 'visible': True,
+                 'columns': [{'name': 'stat[stud]', 'cells': [-3.14159]}, {'name': 'p[stud]', 'cells': [0.002]}]}
+        analysis = {'id': 42, 'name': 'ttestIS', 'ns': 'jmv', 'status': 3,
+                    'options': {'vars': ['N'], 'group': 'gender'}, 'results': [table]}
+        data = {'analyses': [analysis]}
+        rows = local_llm.statistical_context(data)
+        saved = next(row for row in rows if row.get('kind') == 'table')
+        self.assertEqual(42, saved['analysis_id'])
+        self.assertEqual([-3.14159], saved['columns'][0]['cells'])
+        self.assertEqual('gender', saved['options']['group'])
+        self.assertIn('salvat', str(rows).lower())
+        for change in ({'visible': False}, {'status': 4}, {'error': 'bad'}, {'stale': True, 'stale_applicable': True}):
+            data['analyses'][0]['results'] = [{**table, **change}]
+            self.assertFalse(any(row.get('kind') == 'table' for row in local_llm.statistical_context(data)))
+        data['analyses'] = [{**analysis, 'name': 'descriptives', 'options': {'vars': ['A1']}}]
+        self.assertFalse(any(row.get('kind') == 'table' for row in local_llm.statistical_context(data)))
+
+    def test_saved_statistical_context_has_hard_limits(self):
+        table = {'kind': 'table', 'name': 'matrix', 'status': 3, 'columns': [{'name': 'r', 'cells': list(range(3000))}]}
+        analysis = {'id': 1, 'name': 'corrMatrix', 'ns': 'jmv', 'status': 3, 'results': [table] * 30}
+        rows = local_llm.statistical_context({'analyses': [analysis]})
+        self.assertLessEqual(len(json.dumps(rows, ensure_ascii=False)), 12000)
+        tables = [row for row in rows if row.get('kind') == 'table']
+        self.assertLessEqual(len(tables), 20)
+        self.assertLessEqual(sum(len(column['cells']) for row in tables for column in row['columns']), 1500)
+        self.assertIn('tronc', str(rows).lower())
+
+    def test_actual_statistics_survive_long_rubric_and_many_findings(self):
+        report = {'statistical_context': [{'kind': 'table', 'columns': [{'name': 't', 'cells': ['UNIQUE_ACTUAL_T_STAT']}]}],
+                  'findings': [{'id': str(i), 'status': 'Verificato', 'observed': 'x' * 1000} for i in range(577)]}
+        with engine() as (config, calls):
+            result = local_llm.assess_relation(self.document, report, {'linguistic_rubric': 'r' * 40000}, config)
+        prompt = next(x[2] for x in calls if x[1] == '/api/chat')['messages'][1]['content']
+        self.assertIn('UNIQUE_ACTUAL_T_STAT', prompt)
+        self.assertTrue(any('tronc' in warning.lower() for warning in result['limits']))
+
     def test_input_budget_counts_json_escaping(self):
         doc = {'paragraphs': [{'index': i, 'text': '"\\' * 10000} for i in range(8)]}
         with engine() as (config, calls):

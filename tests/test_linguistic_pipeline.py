@@ -19,6 +19,7 @@ class LinguisticPipelineTests(unittest.TestCase):
             result=audit_zip(delivery(),linguistic_config={'enabled':True,'provider':'ollama','model':'local'})
         self.assertEqual(result['reports'][0]['linguistic'],proposed)
         self.assertTrue(assess.called)
+        self.assertIn('statistical_context',set(assess.call_args.args[1]))
         self.assertIn('linguistic',result['summary'])
 
     def test_disabled_engine_is_not_called(self):

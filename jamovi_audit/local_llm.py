@@ -122,6 +122,9 @@ Per ogni osservazione cita testualmente una sottostringa non vuota di un solo
 paragrafo o cella fornita e copia esattamente la sua location. Non ricostruire
 citazioni per parafrasi. Se l'evidenza è insufficiente, usa non_valutabile.
 Le citazioni attestano soltanto presenza del testo, non verità del giudizio.
+Le tabelle statistiche fornite contengono celle effettivamente salvate, eventualmente
+obsolete: confronta direzione, p, IC, d, omega, DS e correlazioni con le conclusioni
+Word, senza considerare quei risultati ricalcolati o certamente aggiornati.
 I risultati deterministici possono essere incompleti o non aggiornati; non
 trasformarli in verità numeriche. Non eseguire codice o richiedere strumenti.
 Rispondi solo con JSON conforme allo schema, al massimo 56 osservazioni.
@@ -240,6 +243,77 @@ def list_models(config=None):
     return _models(validate_config(config))
 
 
+def statistical_context(omv):
+    """Bounded snapshots of saved jmv tables, never recalculated ground truth.
+
+    The final metadata row states omissions and freshness limits. At most 20
+    tables / 1500 cells / 12000 serialized characters are returned.
+    """
+    from .checks import _status_problem
+    warning = {'kind': 'limits', 'limits': ['Valori effettivamente salvati; non ricalcolati, aggiornamento numerico non certificato.']}
+    output, candidates = [], []
+    truncated = False
+    cell_count = 0
+    if not isinstance(omv, dict) or omv.get('errors'):
+        warning['limits'].append('OMV assente o non leggibile: nessuna tabella utilizzabile.')
+        return [warning]
+    for analysis in omv.get('analyses', []):
+        if not isinstance(analysis, dict) or analysis.get('ns', 'jmv') != 'jmv' or _status_problem(analysis):
+            continue
+        name = str(analysis.get('name', '')).lower()
+        if name not in ('ttestis', 'reliability', 'corrmatrix', 'descriptives'):
+            continue
+        options = analysis.get('options') or {}
+        if not isinstance(options, dict):
+            continue
+        variables = options.get('vars', [])
+        if name == 'descriptives' and isinstance(variables, list) and variables and not any(v in ('A', 'C', 'E', 'N', 'O', 'age', 'gender', 'education', 'age_fasce', 'Tscore_N_fasce') for v in variables if isinstance(v, str)):
+            continue
+        for table in analysis.get('results', []):
+            if not isinstance(table, dict) or table.get('kind') != 'table' or _status_problem(table):
+                continue
+            if str(analysis.get('status', '')).lower() not in ('3', 'complete') or str(table.get('status', '')).lower() not in ('3', 'complete'):
+                continue
+            priority = 0 if name == 'ttestis' else 1 if name == 'reliability' and table.get('name') == 'scale' else 2 if name == 'corrmatrix' else 3
+            candidates.append((priority, analysis, table, options))
+    for _, analysis, table, options in sorted(candidates, key=lambda row: row[0]):
+        if len(output) >= 20 or cell_count >= 1500:
+            truncated = True
+            break
+        row = {'kind': 'table', 'analysis_id': analysis.get('id'), 'analysis_name': analysis.get('name'),
+               'path': table.get('path', []), 'name': table.get('name'),
+               'options': {key: options[key] for key in ('vars', 'group', 'groups', 'splitBy', 'revItems', 'paired') if key in options},
+               'row_names': table.get('row_names', []), 'columns': []}
+        for column in table.get('columns', []):
+            if not isinstance(column, dict) or column.get('visible') is False:
+                continue
+            cells = column.get('cells', [])
+            if not isinstance(cells, list):
+                continue
+            kept = cells[:1500 - cell_count]
+            if len(kept) < len(cells):
+                truncated = True
+            compact_column = {'name': column.get('name'), 'title': column.get('title'), 'cells': kept}
+            row['columns'].append(compact_column)
+            # Reserve room for warning metadata before enforcing the hard cap.
+            while kept and len(json.dumps(output + [row, warning], ensure_ascii=False, default=str)) > 11500:
+                kept.pop()
+                truncated = True
+            cell_count += len(kept)
+            if not kept:
+                row['columns'].pop()
+                truncated = True
+                break
+        if row['columns'] and len(json.dumps(output + [row, warning], ensure_ascii=False, default=str)) <= 11500:
+            output.append(row)
+        else:
+            truncated = True
+    if truncated:
+        warning['limits'].append('Contesto statistico troncato: massimo 20 tabelle, 1500 celle e 12000 caratteri; non dedurre assenza dai risultati omessi.')
+    output.append(warning)
+    return output
+
+
 def _context(docx, report, reference, limit, limits):
     entries = []
     for paragraph in docx.get('paragraphs', []):
@@ -271,16 +345,24 @@ def _context(docx, report, reference, limit, limits):
             document.append({'location': location, 'text': shown})
             citations[location] = shown if location not in citations else None
             remaining -= len(location) + len(shown) + 100
-    # The tutor rubric must precede repetitive machine coverage observations.
+    # Reserve distinct bounded slots so actual statistics survive long rubrics
+    # and hundreds of repeated deterministic coverage observations.
     reference = reference or {}
-    reference_text = json.dumps({'rubrica_tutor': reference.get('linguistic_rubric', ''),
-                                 'esempi_tutor': reference.get('linguistic_examples', reference.get('examples', []))},
-                                ensure_ascii=False, default=str)
     extra_budget = limit // 3
-    if len(reference_text) > extra_budget:
-        reference_text = reference_text[:extra_budget]
-        truncated = True
-    remaining = max(0, extra_budget - len(reference_text))
+    remaining_extra = extra_budget
+    def bounded_text(value, cap):
+        nonlocal truncated, remaining_extra
+        text = json.dumps(value, ensure_ascii=False, default=str)
+        allowed = min(cap, remaining_extra)
+        if len(text) > allowed:
+            text = text[:allowed]
+            truncated = True
+        remaining_extra -= len(text)
+        return text
+    reference_text = bounded_text(reference.get('linguistic_rubric', ''), min(4000, extra_budget // 4))
+    stats_text = bounded_text(report.get('statistical_context', []) if isinstance(report, dict) else [], min(8000, extra_budget // 2))
+    examples_text = bounded_text(reference.get('linguistic_examples', reference.get('examples', [])), min(4000, extra_budget // 4))
+    remaining = remaining_extra
     raw_findings = report.get('findings', []) if isinstance(report, dict) else []
     candidates = [f for f in raw_findings if isinstance(f, dict)]
     # Numerical observations and explicit errors first, then unresolved items;
@@ -302,6 +384,8 @@ def _context(docx, report, reference, limit, limits):
         remaining -= cost
     payload = {'documenti_non_attendibili': document,
                'criteri_tutor_non_attendibili_testo': reference_text,
+               'tabelle_statistiche_salvate_non_attendibili_testo': stats_text,
+               'esempi_tutor_non_attendibili_testo': examples_text,
                'risultati_deterministici_non_attendibili': compact,
                'input_troncato': truncated}
     content = json.dumps(payload, ensure_ascii=False)
@@ -318,8 +402,12 @@ def _context(docx, report, reference, limit, limits):
                 longest['text'] = longest['text'][:len(longest['text']) // 2]
             else:
                 document.remove(longest)
-        else:
+        elif payload['esempi_tutor_non_attendibili_testo']:
+            payload['esempi_tutor_non_attendibili_testo'] = payload['esempi_tutor_non_attendibili_testo'][:len(payload['esempi_tutor_non_attendibili_testo']) // 2]
+        elif payload['criteri_tutor_non_attendibili_testo']:
             payload['criteri_tutor_non_attendibili_testo'] = payload['criteri_tutor_non_attendibili_testo'][:len(payload['criteri_tutor_non_attendibili_testo']) // 2]
+        else:
+            payload['tabelle_statistiche_salvate_non_attendibili_testo'] = payload['tabelle_statistiche_salvate_non_attendibili_testo'][:len(payload['tabelle_statistiche_salvate_non_attendibili_testo']) // 2]
         content = json.dumps(payload, ensure_ascii=False)
     citations = {}
     for entry in document:

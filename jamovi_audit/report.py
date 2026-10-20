@@ -258,7 +258,7 @@ def render_report(reports, comparisons, metadata=None):
                 out.append('<tr><td>Voce nello ZIP delle consegne</td><td>'+e(summary.get('source_zip_metadata') or 'Sconosciuta')+'</td><td>Metadato della voce esterna; distinto dagli orari interni e dalle proprietà Word.</td></tr></tbody></table><p><strong>Limiti:</strong> '+e(summary.get('limits','Metadati modificabili, non autenticati; non provano paternità o direzione degli scambi.'))+'</p>')
         linguistic=r.get('linguistic')
         if isinstance(linguistic,dict):
-            out.append('<h3>Analisi linguistica — proposte per il tutor</h3><p>Stato: '+e(linguistic.get('status','non disponibile'))+'; provider: '+e(linguistic.get('provider','sconosciuto'))+'; modello: '+e(linguistic.get('model','sconosciuto'))+'. Ogni rilievo di questa sezione è una proposta da valutare e non modifica automaticamente gli esiti dei controlli deterministici.</p>')
+            out.append('<h3>Analisi linguistica — proposte per il tutor</h3><p>Stato: '+e(linguistic.get('status','non disponibile'))+'; provider: '+e(linguistic.get('provider','sconosciuto'))+'; modello: '+e(linguistic.get('model','sconosciuto'))+'; rubrica: '+e(linguistic.get('rubric_version','non specificata'))+'. Ogni rilievo di questa sezione è una proposta da valutare e non modifica automaticamente gli esiti dei controlli deterministici.</p>')
             proposals=linguistic.get('findings',[])
             if proposals:
                 out.append('<table><thead><tr><th>Proposta del modello</th><th>Evidenze e posizione</th></tr></thead><tbody>')

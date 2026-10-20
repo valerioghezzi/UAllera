@@ -1,4 +1,4 @@
-import io,json,struct,unittest,zipfile
+import io,json,struct,unittest,zipfile,base64,zlib
 from jamovi_audit.archive import safe_zip, inventory
 from jamovi_audit.readers import read_omv, read_docx
 
@@ -11,6 +11,8 @@ def archive(entries):
             info.orig_filename=k
             z.writestr(info,v)
     return b.getvalue()
+PNG_1X1=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==')
+
 def vi(n):
     if n<0:n+=1<<64
     b=b''
@@ -108,8 +110,28 @@ class OMVTests(unittest.TestCase):
     def test_actual_image_resource_is_present(self):
         leaf=p(1,'plot')+p(7,p(1,'01 descriptives/resources/a.png'))
         a=p(2,1)+p(3,'descriptives')+p(7,leaf)+p(8,3)
-        r=read_omv(omv(a,{'01 descriptives/resources/a.png':b'PNG'}))
+        r=read_omv(omv(a,{'01 descriptives/resources/a.png':PNG_1X1}))
         self.assertTrue(r['analyses'][0]['results'][0]['image_exists'])
+        self.assertIs(r['analyses'][0]['results'][0].get('image_valid'),True)
+    def test_invalid_image_resources_are_not_valid_graphs(self):
+        def get(content,path='01 descriptives/resources/a.png'):
+            a=p(2,1)+p(3,'descriptives')+p(7,p(1,'plot')+p(7,p(1,path)))+p(8,3)
+            return read_omv(omv(a,{path:content}))['analyses'][0]['results'][0]
+        for content in (b'x',b'',PNG_1X1[:-5],PNG_1X1[:-12],PNG_1X1[:45]+b'x'+PNG_1X1[46:]):
+            with self.subTest(content=content[:12]):
+                node=get(content)
+                self.assertTrue(node['image_exists'])
+                self.assertIs(node.get('image_valid'),False)
+                self.assertTrue(node.get('image_issue'))
+        node=get(b'<svg></svg>','01 descriptives/resources/a.svg')
+        self.assertIsNone(node.get('image_valid'));self.assertTrue(node.get('image_issue'))
+    def test_zero_dimension_png_not_valid(self):
+        png=bytearray(PNG_1X1);png[16:20]=bytes(4)
+        png[29:33]=struct.pack('>I',zlib.crc32(png[12:29])&0xffffffff)
+        path='01 descriptives/resources/a.png'
+        a=p(2,1)+p(3,'descriptives')+p(7,p(1,'plot')+p(7,p(1,path)))+p(8,3)
+        node=read_omv(omv(a,{path:bytes(png)}))['analyses'][0]['results'][0]
+        self.assertIs(node.get('image_valid'),False)
     def test_empty_table_is_preserved_as_empty(self):
         a=p(2,1)+p(3,'descriptives')+p(7,p(1,'empty')+p(6,b''))+p(8,3)
         self.assertEqual(read_omv(omv(a))['analyses'][0]['results'][0]['columns'],[])

@@ -238,6 +238,37 @@ class ChecksTests(unittest.TestCase):
         data['columns']['N']['data'][1]=3
         self.assertEqual('Errato',self.finding(self.check(data),'P2.N.values')['status'])
 
+    def test_pooled_reliability_does_not_satisfy_separate_scale_requirements(self):
+        names=['N'+str(i) for i in range(1,6)]+['O'+str(i) for i in range(1,6)]
+        nodes=[{'kind':'table','name':'scale','path':['scale'],'columns':[{'name':'alpha','cells':[.9]}]},
+               {'kind':'table','name':'items','path':['items'],'columns':[{'name':'name','cells':names},{'name':'itemRestCor','cells':[.4]*10}]}]
+        data=omv([{'name':'reliability','options':{'vars':names},'results':nodes}])
+        r=self.check(data)
+        for s in ('N','O'):
+            self.assertEqual('Mancante',self.finding(r,f'P7.{s}.alpha')['status'])
+            self.assertEqual('Mancante',self.finding(r,f'P7.{s}.items.itemRestCor')['status'])
+
+    def test_reference_values_align_by_unique_ID_after_student_sort(self):
+        ref={'row_ids':[10,20],'column_values':{'Tscore_N':[40,60]}}
+        data=omv();data['columns']={'id':{'meta':{},'data':[20.,10.]},'Tscore_N':{'meta':{},'data':[60,40]}}
+        matching=[f for f in self.check(data,reference=ref)['findings'] if f['id']=='P4.Tscore_N.values']
+        self.assertEqual('Verificato',matching[-1]['status'])
+        data['columns']['Tscore_N']['data'][0]=61
+        matching=[f for f in self.check(data,reference=ref)['findings'] if f['id']=='P4.Tscore_N.values']
+        self.assertEqual('Errato',matching[-1]['status'])
+
+    def test_reference_unknown_or_duplicate_ID_does_not_compare_positionally(self):
+        ref={'row_ids':[10,20],'column_values':{'Tscore_N':[40,60]}}
+        for ids in ([10,10],[10,30],[10,None],[]):
+            data=omv();data['columns']={'id':{'meta':{},'data':ids},'Tscore_N':{'meta':{},'data':[40,60]}}
+            matching=[f for f in self.check(data,reference=ref)['findings'] if f['id']=='P4.Tscore_N.values']
+            self.assertEqual('Non verificabile',matching[-1]['status'],ids)
+
+    def test_present_but_corrupt_or_unsupported_image_cannot_verify_graph(self):
+        for valid,expected in ((False,'Errato'),(None,'Non verificabile'),(True,'Verificato')):
+            node=image(image_valid=valid,image_issue='Risorsa di prova non decodificabile')
+            self.assertEqual(expected,self.finding(self.check(omv([desc([node])])),'P3.O.boxplot')['status'])
+
 
 if __name__ == '__main__':
     unittest.main()

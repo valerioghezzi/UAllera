@@ -4,6 +4,7 @@ import json
 import math
 import re
 import struct
+import zlib
 import xml.etree.ElementTree as ET
 from .archive import safe_zip
 from .protobuf import fields, val, string, signed, MAX_DEPTH
@@ -43,6 +44,63 @@ def _cell(data):
     return None
 
 
+def _image_validity(content, path):
+    """Validate PNG chunks, checksums and bounded scanline framing, offline."""
+    signature=b'\x89PNG\r\n\x1a\n'
+    if not content.startswith(signature):
+        if path.lower().endswith('.png'):
+            return False,'Firma PNG assente o non valida'
+        return None,'Formato immagine non supportato per la verifica'
+    pos=8;header=None;idat=[];ended=False;palette=False
+    try:
+        while pos<len(content):
+            if pos+12>len(content):raise ValueError('Chunk PNG troncato')
+            length=struct.unpack_from('>I',content,pos)[0]
+            end=pos+12+length
+            if end>len(content):raise ValueError('Lunghezza chunk PNG oltre la risorsa')
+            kind=content[pos+4:pos+8];payload=content[pos+8:pos+8+length]
+            crc=struct.unpack_from('>I',content,pos+8+length)[0]
+            if zlib.crc32(kind+payload)&0xffffffff!=crc:raise ValueError('CRC PNG non valido')
+            if header is None and kind!=b'IHDR':raise ValueError('IHDR PNG non iniziale')
+            if kind==b'IHDR':
+                if header is not None or length!=13:raise ValueError('IHDR PNG duplicato o non valido')
+                header=struct.unpack('>IIBBBBB',payload)
+                width,height,depth,colour,compression,filtering,interlace=header
+                permitted={0:(1,2,4,8,16),2:(8,16),3:(1,2,4,8),4:(8,16),6:(8,16)}
+                if not (0<width<2**31 and 0<height<2**31):raise ValueError('Dimensioni PNG non valide')
+                if colour not in permitted or depth not in permitted[colour] or compression or filtering or interlace not in (0,1):raise ValueError('Parametri IHDR PNG non validi')
+            elif kind==b'PLTE':
+                if idat or not length or length>768 or length%3:raise ValueError('Palette PNG non valida')
+                palette=True
+            elif kind==b'IDAT':idat.append(payload)
+            elif kind==b'IEND':
+                if length or not idat or not any(idat):raise ValueError('IEND o IDAT PNG non valido')
+                if end!=len(content):raise ValueError('Dati dopo IEND PNG')
+                ended=True;break
+            elif kind[:1].isupper():return None,'Chunk PNG critico non supportato'
+            pos=end
+        if header is None or not ended:raise ValueError('IHDR, IDAT o IEND PNG mancante')
+        width,height,depth,colour,_,_,interlace=header
+        if colour==3 and not palette:raise ValueError('Palette PNG indicizzata assente')
+        channels={0:1,2:3,3:1,4:2,6:4}[colour]
+        passes=[(0,0,1,1)] if not interlace else [(0,0,8,8),(4,0,8,8),(0,4,4,8),(2,0,4,4),(0,2,2,4),(1,0,2,2),(0,1,1,2)]
+        rows=[];expected=0
+        for x,y,dx,dy in passes:
+            pw=max(0,(width-x+dx-1)//dx);ph=max(0,(height-y+dy-1)//dy)
+            if pw and ph:
+                stride=(pw*channels*depth+7)//8+1;rows.append((stride,ph));expected+=stride*ph
+        if expected>64*1024*1024:return None,'PNG oltre il limite di verifica delle righe'
+        dec=zlib.decompressobj();raw=dec.decompress(b''.join(idat),expected+1)
+        if len(raw)!=expected or not dec.eof or dec.unused_data or dec.unconsumed_tail:raise ValueError('Dati compressi o righe PNG non validi')
+        offset=0
+        for stride,count in rows:
+            for row in range(count):
+                if raw[offset+row*stride]>4:raise ValueError('Filtro riga PNG non valido')
+            offset+=stride*count
+        return True,''
+    except (ValueError,struct.error,zlib.error) as e:return False,str(e)
+
+
 def _flatten(data,entries,parent,depth=0):
     f=fields(data,depth)
     name=string(f,1)
@@ -76,7 +134,9 @@ def _flatten(data,entries,parent,depth=0):
             out['row_names']=[x.decode('utf-8') for _,x in node.get(2,[])]
         elif kind=='image':
             image=fields(b,depth+1);path_=string(image,1)
-            out.update(image_path=path_,image_exists=bool(path_ and path_ in entries and entries[path_]),width=val(image,2,0),height=val(image,3,0))
+            exists=bool(path_ and path_ in entries)
+            valid,issue=_image_validity(entries[path_],path_) if exists else (False,'Risorsa immagine assente')
+            out.update(image_path=path_,image_exists=exists,image_valid=valid,image_issue=issue,width=val(image,2,0),height=val(image,3,0))
         elif kind in ('preformatted','syntax'):out['text']=b.decode('utf-8')
         elif kind=='html':out['text']=string(fields(b,depth+1),1)
         elif kind=='notice':

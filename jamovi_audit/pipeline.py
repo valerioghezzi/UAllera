@@ -7,7 +7,7 @@ from .archive import safe_zip, inventory
 from .readers import read_omv, read_docx
 from .checks import check_submission
 from .report import compare_submissions, render_report
-from .local_llm import assess_relation, validate_config
+from .local_llm import assess_relation, validate_config, statistical_context
 from .metadata import extract_zip_metadata, inspect_document_metadata, metadata_anomalies, metadata_cross_checks, CLOSE_SECONDS
 
 
@@ -79,7 +79,7 @@ def audit_zip(data: bytes, progress=None, cancelled=None, linguistic_config=None
             if progress is not None:
                 progress(index, len(submissions), submission['label'] + ' — valutazione linguistica locale')
             report['linguistic'] = assess_relation(
-                documents['docx'], report, reference=reference,
+                documents['docx'], dict(report, statistical_context=statistical_context(documents['omv'])), reference=reference,
                 config=linguistic_config, cancelled=cancelled)
             check_cancelled()
         reports.append(report)

@@ -255,6 +255,8 @@ def check_submission(submission, omv, docx, reference=None):
             avars = set(str(x) for x in _flatten(opts.get('vars', [])))
             if not requested <= avars:
                 continue
+            if analysis_name.lower()=='reliability' and requested!=avars:
+                continue
             by = set(str(x) for x in _flatten(opts.get('splitBy', [])))
             if split != ('gender' in by) and analysis_name.lower() == 'descriptives':
                 continue
@@ -290,6 +292,9 @@ def check_submission(submission, omv, docx, reference=None):
             if node.get('kind', '').lower() == 'image':
                 if not node.get('image_exists'):
                     problems.append(('Mancante','Risorsa immagine inesistente.',loc)); continue
+                if 'image_valid' in node and node['image_valid'] is not True:
+                    state='Errato' if node['image_valid'] is False else 'Non verificabile'
+                    problems.append((state,node.get('image_issue') or 'Risorsa immagine corrotta o formato non supportato.',loc)); continue
                 # A multi-variable plot must itself identify the required variable.
                 context = set(re.findall(r'[\w]+', ' '.join(map(str,node.get('path', []))) + ' ' + str(node.get('title', ''))))
                 if len(requested)==1 and not requested <= context and len(set(_flatten(a['options'].get('vars',[])))) > 1:
@@ -421,8 +426,33 @@ def check_submission(submission, omv, docx, reference=None):
             output(f'P7.{s}.items.{stat}',7,'reliability',itemnames,['items'],[stat],text=f'{s}: item-rest / eliminazione item: {stat}')
         output(f'P7.{s}.heatmap',7,'reliability',itemnames,['corPlot'],text=f'{s}: mappa di calore correlazioni item')
         add(f'P7.{s}.orientation',7,'OMV','Da verificare' if not unreadable else absent,f'Orientamento item di {s}','Rivedere revItems e possibili colonne già invertite.','Evitarne la doppia inversione; O2 e O5 inversi, N nessun inverso.','analisi/reliability/opzioni')
+    reference_order=None
+    reference_id_error=None
+    if 'row_ids' in reference:
+        from decimal import Decimal, InvalidOperation
+        def reference_id(value):
+            if value is None or isinstance(value,bool) or str(value).strip()=='':
+                return None
+            try:
+                numeric=Decimal(str(value))
+                return ('number',numeric) if numeric.is_finite() else None
+            except InvalidOperation:
+                return ('text',str(value))
+        ref_ids=[reference_id(v) for v in reference.get('row_ids',[])]
+        student_ids=[reference_id(v) for v in values('ID')]
+        if not ref_ids or None in ref_ids or None in student_ids or len(set(ref_ids))!=len(ref_ids) or len(set(student_ids))!=len(student_ids) or set(ref_ids)!=set(student_ids):
+            reference_id_error='Confronto con il riferimento non eseguibile: ID mancanti, duplicati o insieme di ID diverso; nessun confronto posizionale sostitutivo.'
+        else:
+            positions={identifier:i for i,identifier in enumerate(ref_ids)}
+            reference_order=[positions[identifier] for identifier in student_ids]
     for name,expected in reference.get('column_values',{}).items():
-        calculated(name,4 if name.startswith(('Z','T')) else 2,expected,'Riferimento indipendente validato.')
+        part=4 if name.startswith(('Z','T')) else 2
+        if reference_id_error or (reference_order is not None and len(expected)!=len(reference_order)):
+            add(f'P{part}.{name}.values',part,'OMV','Non verificabile',f'Valori di {name}',reference_id_error or 'Lunghezza del riferimento diversa dagli ID di riferimento.',
+                'Riferimento indipendente associato mediante ID univoci, senza dedurre un errore da un diverso ordinamento delle righe.','dati/'+source_name(name)+' ↔ riferimento/ID')
+            continue
+        aligned=[expected[i] for i in reference_order] if reference_order is not None else expected
+        calculated(name,part,aligned,'Riferimento indipendente validato.'+(' Valori associati agli ID univoci; ordine delle righe irrilevante.' if reference_order is not None else ''))
 
     # Word evidence remains reviewable: a heading or copied question is never a pass.
     paragraphs=list((docx or {}).get('paragraphs',[]))
