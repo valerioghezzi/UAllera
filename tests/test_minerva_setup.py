@@ -50,6 +50,7 @@ class SetupFixture:
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / 'minerva'
         self.model = b'GGUF fixture only, not inference'
+        self.tokenizer = b'official tokenizer fixture'
         self.bundle = archive()
         self.downloads = []
         self.configure()
@@ -59,6 +60,7 @@ class SetupFixture:
             self.bundle = bundle
         for patcher in (
             mock.patch.object(minerva, 'MODEL', asset('model.gguf', self.model)),
+            mock.patch.object(minerva, 'TOKENIZER', asset('tokenizer.json', self.tokenizer), create=True),
             mock.patch.dict(minerva.RUNTIMES, {'x64': asset('runtime.zip', self.bundle)}),
             mock.patch.object(minerva.urllib.request, 'urlopen', side_effect=self.open_asset),
         ):
@@ -67,7 +69,7 @@ class SetupFixture:
     def open_asset(self, request, timeout=None):
         url = request.full_url if hasattr(request, 'full_url') else request
         self.downloads.append(url)
-        return io.BytesIO(self.model if url.endswith('model.gguf') else self.bundle)
+        return io.BytesIO(self.model if url.endswith('model.gguf') else self.tokenizer if url.endswith('tokenizer.json') else self.bundle)
 
 
 class SetupTests(SetupFixture, unittest.TestCase):
@@ -80,10 +82,21 @@ class SetupTests(SetupFixture, unittest.TestCase):
         if official.exists():
             self.assertEqual(official.read_bytes(), result.template_path.read_bytes())
         self.assertTrue(progress)
-        self.assertEqual(2, len(self.downloads))
+        self.assertEqual(3, len(self.downloads))
         minerva.prepare(self.root, 'x64')
-        self.assertEqual(2, len(self.downloads))
+        self.assertEqual(3, len(self.downloads))
         self.assertFalse(list(self.root.rglob('*.part')))
+
+    def test_official_tokenizer_is_pinned_repaired_and_required_offline(self):
+        prepared = minerva.prepare(self.root, 'x64')
+        tokenizer = self.root / 'models' / 'tokenizer.json'
+        self.assertTrue(tokenizer.is_file(), 'Official tokenizer asset was not prepared')
+        self.assertEqual(tokenizer.read_bytes(), self.tokenizer)
+        tokenizer.write_bytes(b'changed')
+        with self.assertRaisesRegex(ValueError, 'Installazione'):
+            minerva._validate_local(prepared, None)
+        minerva.prepare(self.root, 'x64')
+        self.assertEqual(prepared.tokenizer_path.read_bytes(), self.tokenizer)
 
     def test_unknown_architecture_has_no_side_effects(self):
         with self.assertRaises(ValueError): minerva.prepare(self.root, 'win32')
@@ -143,7 +156,7 @@ class SetupTests(SetupFixture, unittest.TestCase):
         prepared = minerva.prepare(self.root, 'x64')
         extra = prepared.executable_path.with_name('untrusted.dll'); extra.write_bytes(b'added')
         minerva.prepare(self.root, 'x64')
-        self.assertFalse(extra.exists()); self.assertEqual(2, len(self.downloads))
+        self.assertFalse(extra.exists()); self.assertEqual(3, len(self.downloads))
 
     def test_truncated_download_is_not_published(self):
         with mock.patch.object(minerva.urllib.request, 'urlopen', return_value=io.BytesIO(self.model[:-1])):
@@ -157,7 +170,7 @@ class SetupTests(SetupFixture, unittest.TestCase):
         minerva.prepare(self.root, 'x64')
         self.assertEqual(self.model, result.model_path.read_bytes())
         self.assertEqual(b'fixture-library', result.executable_path.with_name('ggml.dll').read_bytes())
-        self.assertEqual(3, len(self.downloads))
+        self.assertEqual(4, len(self.downloads))
 
     def test_unsafe_zip_paths_rejected_before_extraction(self):
         paths = ('../escape', '..\\escape', '..\\..\\escape', '/absolute', 'C:/drive', 'C:\\drive', '\\\\server\\share\\evil', 'folder\\escape', 'file:stream', 'NUL', 'folder./x')
@@ -207,7 +220,7 @@ class SetupTests(SetupFixture, unittest.TestCase):
 
     def test_arm64_runtime_normalized(self):
         arm = archive(machine=0xaa64)
-        with mock.patch.dict(minerva.RUNTIMES, {'ARM64': asset('arm.zip', arm)}), mock.patch.object(minerva.urllib.request, 'urlopen', side_effect=lambda request, timeout=None: io.BytesIO(self.model if request.full_url.endswith('model.gguf') else arm)):
+        with mock.patch.dict(minerva.RUNTIMES, {'ARM64': asset('arm.zip', arm)}), mock.patch.object(minerva.urllib.request, 'urlopen', side_effect=lambda request, timeout=None: io.BytesIO(self.model if request.full_url.endswith('model.gguf') else self.tokenizer if request.full_url.endswith('tokenizer.json') else arm)):
             result = minerva.prepare(self.root, 'arm64')
         self.assertEqual('ARM64', result.architecture)
         self.assertEqual(pe(0xaa64), result.executable_path.read_bytes())

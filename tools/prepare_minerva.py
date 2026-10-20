@@ -42,6 +42,12 @@ MODEL = Asset(
     '9a87b0d5cec8f99fb245b92cc64a9d0394fe38d2/minerva-7b-instruct-v1.0-q4_k_m.gguf',
     4478676576, 'dc3fda6cfad45153e1e0bbe87b3cf421589aaf88086fa048afd619c6e2bfc681',
 )
+TOKENIZER = Asset(
+    'tokenizer.json',
+    'https://huggingface.co/sapienzanlp/Minerva-7B-instruct-v1.0/resolve/'
+    'd1fc0f0e589ae879c5ac763e0e4206a4d14a3f6d/tokenizer.json',
+    3667107, '0d8b77024a99bb31ba2b4fb6e0efed0910335ad77ac2d922ca09ed0a05f65f4d',
+)
 RUNTIMES = {
     'x64': Asset('llama-b11756-bin-win-cpu-x64.zip',
         'https://github.com/ggml-org/llama.cpp/releases/download/b11756/llama-b11756-bin-win-cpu-x64.zip',
@@ -63,6 +69,7 @@ class PreparedMinerva:
     model_path: Path
     executable_path: Path
     template_path: Path
+    tokenizer_path: Path | None = None
 
 
 def _architecture(value):
@@ -262,7 +269,7 @@ def _paths(destination, architecture):
     architecture = _architecture(architecture)
     root = Path(destination).expanduser().resolve()
     return PreparedMinerva(root, architecture, root / 'models' / MODEL.name,
-        root / ('runtime-b11756-' + architecture) / 'llama-server.exe', root / 'chat_template.jinja')
+        root / ('runtime-b11756-' + architecture) / 'llama-server.exe', root / 'chat_template.jinja', root / 'models' / TOKENIZER.name)
 
 
 def prepare(destination, architecture, progress=None):
@@ -277,9 +284,10 @@ def prepare(destination, architecture, progress=None):
     root.mkdir(parents=True, exist_ok=True)
     with _setup_lock(root):
         archive = root / 'downloads' / RUNTIMES[prepared.architecture].name
-        for path in (prepared.model_path, prepared.executable_path, prepared.template_path, archive):
+        for path in (prepared.model_path, prepared.executable_path, prepared.template_path, prepared.tokenizer_path, archive):
             _safe_path(root, path)
         _download(prepared.model_path, MODEL, progress)
+        _download(prepared.tokenizer_path, TOKENIZER, progress)
         _download(archive, RUNTIMES[prepared.architecture], progress)
         if not _runtime_valid(root, prepared.executable_path.parent, archive, prepared.architecture):
             _progress(progress, 'extract', message='Preparazione motore locale Minerva')
@@ -299,9 +307,10 @@ def prepare(destination, architecture, progress=None):
 def _validate_local(prepared, progress):
     root = prepared.destination
     archive = root / 'downloads' / RUNTIMES[prepared.architecture].name
-    for path in (prepared.model_path, prepared.executable_path, prepared.template_path, archive):
+    for path in (prepared.model_path, prepared.executable_path, prepared.template_path, prepared.tokenizer_path, archive):
         _safe_path(root, path)
     if (not _valid_asset(prepared.model_path, MODEL, progress) or
+            not _valid_asset(prepared.tokenizer_path, TOKENIZER, progress) or
             not _valid_asset(archive, RUNTIMES[prepared.architecture], progress) or
             not _runtime_valid(root, prepared.executable_path.parent, archive, prepared.architecture) or
             not prepared.template_path.is_file() or prepared.template_path.read_bytes() != CHAT_TEMPLATE):
@@ -315,6 +324,7 @@ class LocalServer:
     base_url: str
     api_key: str = field(repr=False)
     model: str = MODEL_ALIAS
+    tokenizer_path: Path | None = None
     cleanup_complete: bool = field(default=False, init=False, repr=False)
     _stop_attempted: bool = field(default=False, init=False, repr=False)
 
@@ -401,7 +411,7 @@ def launch(prepared_or_destination, architecture=None, *, port=0, startup_timeou
         process = subprocess.Popen(arguments, **options)
     except OSError:
         raise RuntimeError('Impossibile avviare il motore Minerva locale per questa architettura.') from None
-    server = LocalServer(process, f'http://127.0.0.1:{port}', key)
+    server = LocalServer(process, f'http://127.0.0.1:{port}', key, tokenizer_path=prepared.tokenizer_path)
     atexit.register(server.stop)
     # Ignore proxy environment and reject redirects: the secret stays on loopback.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())

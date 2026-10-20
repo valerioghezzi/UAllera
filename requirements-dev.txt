@@ -1,0 +1,4 @@
+# Optional development tests only; never installed by the offline Windows app.
+# Latest release verified against https://pypi.org/project/hypothesis/ on 2026-10-20.
+# Requires a development Python >=3.11. Production runtime remains stdlib-only.
+hypothesis==6.170.5

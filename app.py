@@ -92,6 +92,14 @@ class Handler(BaseHTTPRequestHandler):
     server_version = 'ControlloLocale'
     protocol_version = 'HTTP/1.1'
 
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionResetError, BrokenPipeError):
+            # A closed browser tab may reset an HTTP/1.1 keep-alive connection.
+            # Other server errors retain their normal diagnostic traceback.
+            self.close_connection = True
+
     def log_message(self, *args):
         # Never log the session token or student data.
         pass

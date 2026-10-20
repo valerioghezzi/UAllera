@@ -61,6 +61,26 @@ class LocalAppTests(unittest.TestCase):
         headers = {**self.auth(), 'Content-Length': str(513 * 1024 * 1024)}
         self.assertEqual(self.request('POST', '/api/scan', b'', headers)[0], 413)
 
+    def test_browser_connection_reset_does_not_emit_server_error(self):
+        import os, socket, struct, sys
+        started=threading.Event();finished=threading.Event();errors=[]
+        base=self.app.Handler
+        class ObservedHandler(base):
+            def handle(handler):
+                started.set()
+                try:super().handle()
+                finally:finished.set()
+        self.server.RequestHandlerClass=ObservedHandler
+        self.server.handle_error=lambda request,address:errors.append(type(sys.exc_info()[1]).__name__)
+        connection=socket.create_connection(('127.0.0.1',self.port),timeout=3)
+        connection.sendall(b'GET /api/status HTTP/1.1')
+        self.assertTrue(started.wait(3))
+        connection.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('hh' if os.name=='nt' else 'ii',1,0))
+        connection.close()
+        self.assertTrue(finished.wait(3))
+        self.assertEqual(errors,[])
+        self.assertEqual(self.request('GET','/api/status',headers=self.auth())[0],200)
+
     def test_status_is_json(self):
         status, _, data = self.request('GET', '/api/status', headers=self.auth())
         self.assertEqual(status, 200)

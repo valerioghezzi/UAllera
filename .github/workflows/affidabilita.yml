@@ -1,0 +1,75 @@
+name: Affidabilita - test sintetici senza modelli
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reliability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Installa soltanto dipendenze di sviluppo
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+      - name: Esegui proprieta e casi avversari senza modelli
+        run: |
+          python -c "import hypothesis; print('Hypothesis', hypothesis.__version__)"
+          python -m unittest discover -s tests -p test_properties.py -v
+          python -m unittest discover -s tests -p test_adversarial_inputs.py -v
+      - name: Misura due classi sintetiche e due scenari
+        run: python tools/benchmark_audit.py --sizes 10 30 --seed 1729 --output benchmark_artifacts/benchmark.json
+      - name: Verifica schema e coerenza del benchmark
+        shell: python
+        run: |
+          import json, math, re
+          from pathlib import Path
+          result=json.loads(Path('benchmark_artifacts/benchmark.json').read_text(encoding='utf-8'))
+          assert result['schema_version']==1
+          assert result['linguistic_inference']=='disabled'
+          assert result['seed']==1729
+          assert result['software_version'] and result['python'] and result['platform']
+          assert re.fullmatch('[0-9a-f]{64}',result['source_sha256'])
+          reference=result['reference']
+          assert type(reference['available']) is bool
+          assert (bool(re.fullmatch('[0-9a-f]{64}',reference['sha256'] or '')) if reference['available'] else reference['sha256'] is None)
+          assert result['measurement']['repetitions_per_case']==1
+          assert result['measurement']['tracemalloc_overhead_included'] is True
+          runs=result['runs']
+          assert len(runs)==4
+          assert {(r['scenario'],r['student_count']) for r in runs}=={(s,n) for s in ('unique','mixed_duplicates') for n in (10,30)}
+          for row in runs:
+              n=row['student_count']
+              assert type(n) is int
+              assert row['requested_students']==n
+              assert row['reference_available']==result['reference']['available']
+              assert re.fullmatch('[0-9a-f]{64}',row['input_sha256'])
+              assert row['input_bytes']>0
+              assert type(row['wall_seconds']) in (int,float)
+              assert math.isfinite(row['wall_seconds']) and row['wall_seconds']>=0
+              assert type(row['peak_tracemalloc_bytes']) is int and row['peak_tracemalloc_bytes']>0
+              assert row['findings']>0 and row['comparison_findings']>=0
+              assert row['comparison_diagnostics']['pairs_total']==n*(n-1)//2
+              assert row['cache_stats_available'] is True
+              cache=row['cache_stats']
+              assert 0<=cache['entries']<=cache['max_entries']
+              assert 0<=cache['bytes']<=cache['max_bytes']
+              assert all(cache[key]>=0 for key in ('hits','misses','bypassed','evictions'))
+          assert len(result['scaling'])==2
+          assert all(row['cohort_ratio']==3 for row in result['scaling'])
+          print('Schema e contatori coerenti; nessuna soglia assoluta sui tempi.')
+      - name: Conserva misure osservate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Affidabilita-benchmark-python312-linux
+          path: benchmark_artifacts/benchmark.json
+          if-no-files-found: warn
+          retention-days: 14

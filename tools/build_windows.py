@@ -45,6 +45,9 @@ def build(arch, runtime_data, destination):
     for name in ['jamovi_audit', 'tests', 'tools', 'reference']:
         if (source / name).is_dir():
             shutil.copytree(source / name, folder / name, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    docs = folder / 'docs'
+    docs.mkdir()
+    shutil.copy2(source / 'docs' / 'Affidabilita.md', docs / 'Affidabilita.md')
     runtime = folder / 'runtime'
     runtime.mkdir()
     with zipfile.ZipFile(io.BytesIO(runtime_data)) as z:

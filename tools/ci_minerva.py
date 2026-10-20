@@ -15,7 +15,7 @@ import time
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
-from tools.prepare_minerva import Asset, MODEL, MODEL_ALIAS, CHAT_TEMPLATE, LocalServer, _download
+from tools.prepare_minerva import Asset, MODEL, MODEL_ALIAS, CHAT_TEMPLATE, TOKENIZER, LocalServer, _download
 from tools.ci_real_model import synthetic_delivery, verify_pipeline
 from jamovi_audit import local_llm, validation
 from jamovi_audit.pipeline import audit_zip
@@ -33,7 +33,7 @@ def main():
     if not 1<=args.limit<=70:parser.error('--limit must be 1..70')
     if platform.system()!='Linux' or platform.machine().lower() not in ('x86_64','amd64'):parser.error('Requires Linux x64')
     out=args.output.resolve();assets=args.assets.resolve();out.mkdir(parents=True,exist_ok=True);assets.mkdir(parents=True,exist_ok=True)
-    for asset in [MODEL,RUNTIME]:
+    for asset in [MODEL,RUNTIME,TOKENIZER]:
         print('Preparing pinned public asset',asset.name,flush=True)
         _download(assets/asset.name,asset,None)
     with tarfile.open(assets/RUNTIME.name) as archive:archive.extractall(assets/'runtime',filter='data')
@@ -42,13 +42,13 @@ def main():
     with socket.socket() as reservation:reservation.bind(('127.0.0.1',0));port=reservation.getsockname()[1]
     key=secrets.token_urlsafe(32)
     command=[str(assets/'runtime/llama-b11756/llama-server'),'--model',str(assets/MODEL.name),'--host','127.0.0.1','--port',str(port),'--ctx-size','4096','--parallel','1','--threads',str(threads),'--threads-batch',str(threads),'--alias',MODEL_ALIAS,'--no-warmup','--jinja','--chat-template-file',str(template),'--offline','--no-webui','--api-key',key]
-    provenance={'model':MODEL.__dict__,'runtime':RUNTIME.__dict__,'template_sha256':hashlib.sha256(CHAT_TEMPLATE).hexdigest(),'platform':platform.platform(),'threads':threads,'context_tokens':4096,'scope':'Public synthetic data only; literal loopback CPU inference. No student data.'}
+    provenance={'model':MODEL.__dict__,'runtime':RUNTIME.__dict__,'tokenizer':TOKENIZER.__dict__,'template_sha256':hashlib.sha256(CHAT_TEMPLATE).hexdigest(),'platform':platform.platform(),'threads':threads,'context_tokens':4096,'scope':'Public synthetic data only; literal loopback CPU inference. No student data.'}
     (out/'Provenienza.json').write_text(json.dumps(provenance,indent=2))
     original_request=local_llm._request;original_assess=validation.assess_relation
     logpath=out/'llama_server.log'
     with logpath.open('w') as log:
         process=subprocess.Popen(command,stdout=log,stderr=subprocess.STDOUT)
-        server=LocalServer(process,f'http://127.0.0.1:{port}',key)
+        server=LocalServer(process,f'http://127.0.0.1:{port}',key,tokenizer_path=assets/TOKENIZER.name)
         config=local_llm.validate_config({'enabled':True,'provider':'llamacpp','endpoint':server.base_url,'model':MODEL_ALIAS,'timeout':900,'_managed_minerva':server})
         try:
             deadline=time.monotonic()+180

@@ -37,6 +37,18 @@ jobs:
           expected='${{ matrix.arch }}'
           print('Architecture:',actual,'Python:',platform.python_version())
           assert actual in (['arm64','aarch64'] if expected=='arm64' else ['amd64','x86_64'])
+      - name: Prepara tokenizer ufficiale per confronto dei token senza modello
+        shell: python
+        run: |
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path.cwd()))
+          from tools.prepare_minerva import TOKENIZER, _download
+          path=Path('.minerva-tokenizer')/TOKENIZER.name
+          _download(path,TOKENIZER,None)
+          with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as output:
+              output.write('UALLERA_OFFICIAL_TOKENIZER='+str(path.resolve())+'\n')
+              output.write('UALLERA_TOKENIZER_ORACLE='+str(Path('tests/fixtures/minerva_hf_oracle.json').resolve())+'\n')
       - name: Test senza dipendenze esterne
         run: python -S -m unittest discover -s tests -v
       - name: Test interfaccia nel browser con dati artificiali

@@ -2,9 +2,9 @@
 import hashlib
 import json
 from .local_llm import LocalEngineError, _AUTHORSHIP, _finding, _unassessed
-from tools.prepare_minerva import CHAT_TEMPLATE, MODEL, MODEL_ALIAS
+from tools.prepare_minerva import CHAT_TEMPLATE, MODEL, MODEL_ALIAS, TOKENIZER
 
-PROFILE = 'minerva-evidence-1.0'
+PROFILE = 'minerva-evidence-2.0-hf-tokenizer'
 OFFICIAL_TEMPLATE = CHAT_TEMPLATE.decode('utf-8')
 OUTPUT_TOKENS = 768
 CRITERIA = {
@@ -23,6 +23,20 @@ Per ciascuna parte richiesta restituisci una osservazione: assessment è coerent
 def render_official(messages):
     """Pinned tokenizer template; compared against the engine before tokenizing."""
     return '<s>' + ''.join('<|start_header_id|>'+m['role']+'<|end_header_id|>\n\n'+m['content'].strip()+'<|eot_id|>' for m in messages) + '<|start_header_id|>assistant<|end_header_id|>\n\n'
+
+
+def _official_encoder(config):
+    # The GGUF vocabulary matches the official model, but its native input
+    # preprocessing does not. Feed official token IDs directly to completion.
+    from .minerva_tokenizer import OfficialTokenizer
+    server=config.get('_managed_minerva')
+    path=getattr(server, 'tokenizer_path', None)
+    if path is None:
+        raise LocalEngineError('Tokenizer ufficiale Minerva non disponibile: preparare il motore locale gestito.')
+    try:
+        return OfficialTokenizer(path).encode
+    except (OSError, ValueError) as exc:
+        raise LocalEngineError('Tokenizer ufficiale Minerva assente, modificato o incompatibile.') from None
 
 
 def segment_document(docx, max_chars=700):
@@ -103,8 +117,8 @@ def review(docx, report, reference, config, cancelled=None, *, target_part=None,
                       'I confini dei passaggi possono separare condizioni e negazioni: confrontare i passaggi adiacenti nel Word.',
                       'Annullamento tra richieste; una richiesta in corso resta soggetta al timeout configurato.'],
             'coverage':{'planned_chunks':0,'attempted_chunks':0,'successful_chunks':0,'failed_chunks':0,'source_characters':0,'reviewed_characters':0},
-            'chunks':[],'conflicting_parts':[],
-            'protocol':{'version':PROFILE,'expected_model_sha256':MODEL.sha256,'template_sha256':hashlib.sha256(CHAT_TEMPLATE).hexdigest(),'expected_runtime':'llama.cpp b11756','temperature':0,'seed':0,'output_tokens':OUTPUT_TOKENS}}
+            'chunks':[],'conflicting_parts':[],'response_count':0,
+            'protocol':{'version':PROFILE,'expected_model_sha256':MODEL.sha256,'template_sha256':hashlib.sha256(CHAT_TEMPLATE).hexdigest(),'expected_runtime':'llama.cpp b11756','tokenizer_sha256':TOKENIZER.sha256,'input_encoding':'official-hf-tokenizer-json-stdlib','temperature':0,'seed':0,'output_tokens':OUTPUT_TOKENS}}
     coverage=result['coverage']
     def check_cancel():
         if cancelled and cancelled():raise InterruptedError('Annullato dal tutor.')
@@ -124,6 +138,7 @@ def review(docx, report, reference, config, cancelled=None, *, target_part=None,
         result['protocol']['asset_verification']='managed-pinned-files' if '_managed_minerva' in config else 'external-unverified'
         if type(context) is not int or context<=OUTPUT_TOKENS or props.get('chat_template')!=OFFICIAL_TEMPLATE:
             raise LocalEngineError('Template ufficiale Minerva o dimensione del contesto non verificabili.')
+        encode=_official_encoder(config)
         context=min(4096,context)
         result['protocol']['context_tokens']=context
         # Saved output snapshots are never citable Word evidence. Include them only
@@ -139,8 +154,7 @@ def review(docx, report, reference, config, cancelled=None, *, target_part=None,
             # restore the pinned BOS explicitly before counting and inference.
             if not isinstance(prompt,str) or prompt not in (official,official[3:]):raise LocalEngineError('Il template applicato dal motore differisce da quello ufficiale verificato.')
             prompt=official
-            value=_request(config,'POST','/tokenize',{'content':prompt,'add_special':False,'parse_special':True},cancelled)
-            tokens=value.get('tokens')
+            tokens=encode(prompt)
             if not isinstance(tokens,list) or not tokens or not all(type(t) is int and t>=0 for t in tokens):raise LocalEngineError('Conteggio reale dei token non disponibile.')
             return tokens
         # Pack every source span without sampling. Oversized spans are subdivided
@@ -173,6 +187,8 @@ def review(docx, report, reference, config, cancelled=None, *, target_part=None,
             result['chunks'].append(record)
             try:
                 response=_request(config,'POST','/completion',{'prompt':tokens,'n_predict':OUTPUT_TOKENS,'temperature':0,'seed':0,'stream':False,'cache_prompt':True,'json_schema':_schema(spans,parts)},cancelled)
+                result['response_count']+=1
+                record['response_received']=True
                 if response.get('truncated') is not False or response.get('stop_type') not in ('eos','word'):raise LocalEngineError('Generazione incompleta o contesto troncato; osservazioni scartate.')
                 evaluated=response.get('tokens_evaluated')
                 if evaluated is not None and evaluated!=len(tokens):raise LocalEngineError('Il motore ha valutato un numero di token diverso da quello pianificato.')

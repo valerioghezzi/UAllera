@@ -21,7 +21,7 @@ LIMITS = [
 def _metrics(rows):
     valid = [r for r in rows if r['observed'] in LABELS]
     matching = sum(r['observed'] == r['expected_assessment'] for r in valid)
-    completed = [r for r in rows if r['engine_status'] == 'complete']
+    completed = [r for r in rows if r['engine_status'] == 'complete' or r.get('response_received')]
     errors = [r for r in completed if r['expected_assessment'] == 'errata']
     correct = [r for r in completed if r['expected_assessment'] == 'coerente']
     def ratio(n, d):
@@ -51,7 +51,7 @@ def run_validation(config, cases=None, progress=None, cancelled=None):
     start = time.monotonic()
     result = dict(status='complete', provider=normalized['provider'], model=normalized['model'],
                   endpoint=normalized['endpoint'], timeout=normalized['timeout'], rubric_version=RUBRIC_VERSION, corpus_version=VALIDATION_VERSION,
-                  evaluation_profile=('minerva-single-question-evidence-1.0' if normalized['provider']=='llamacpp' and normalized['model']=='minerva-7b-instruct-q4-local' else 'single-question-1.1'),
+                  evaluation_profile=('minerva-single-question-evidence-2.0-hf-tokenizer' if normalized['provider']=='llamacpp' and normalized['model']=='minerva-7b-instruct-q4-local' else 'single-question-1.1'),
                   corpus_sha256=hashlib.sha256(corpus_json.encode()).hexdigest(),
                   started_utc=datetime.now(timezone.utc).isoformat(), planned=len(selected), cases=[], limits=list(LIMITS))
     for case in selected:
@@ -73,8 +73,8 @@ def run_validation(config, cases=None, progress=None, cancelled=None):
         observed = next(iter(predictions)) if all_citable and len(predictions) == 1 and review['status'] == 'complete' else None
         result['cases'].append(dict(case, observed=observed, engine_status=review['status'],
                                     matches_expected=observed == case['expected_assessment'],
-                                    seconds=round(time.monotonic()-before, 3), findings=findings, limits=review.get('limits', []), protocol=review.get('protocol'), coverage=review.get('coverage')))
-        if review['status'] in ('unavailable', 'cancelled'):
+                                    seconds=round(time.monotonic()-before, 3), findings=findings, limits=review.get('limits', []), protocol=review.get('protocol'), coverage=review.get('coverage'),response_received=bool(review.get('response_count',1 if review['status']=='complete' else 0))))
+        if review['status']=='cancelled' or (review['status']=='unavailable' and not result['cases'][-1]['response_received']):
             result['status'] = review['status']
             break
     rows = result['cases']

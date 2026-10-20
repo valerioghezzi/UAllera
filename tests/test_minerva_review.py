@@ -46,6 +46,9 @@ class EvidenceTests(unittest.TestCase):
 
 
 class ProtocolTests(unittest.TestCase):
+    def setUp(self):
+        encoder=patch.object(mr, '_official_encoder', return_value=lambda text:list(text.encode()), create=True)
+        encoder.start();self.addCleanup(encoder.stop)
     def config(self):return validate_config({'enabled':True,'provider':'llamacpp','model':'minerva-7b-instruct-q4-local','timeout':900})
     def engine(self, completion=None, cancel_after=False, context=4096):
         self.calls=[];self.completions=0;self.cancelled=False
@@ -77,6 +80,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(result['conflicting_parts'],[6])
         self.assertEqual(result['coverage']['source_characters'],result['coverage']['reviewed_characters'])
         self.assertTrue(all(len(p['prompt'])+p['n_predict']<=3200 for path,p in self.calls if path=='/completion'))
+        self.assertNotIn('/tokenize',[path for path,p in self.calls], 'Broken GGUF preprocessing must be bypassed')
 
     def test_output_exhaustion_cannot_be_complete_even_with_valid_json(self):
         response={'content':'{"findings":[]}','stop_type':'limit','truncated':False}
@@ -147,6 +151,22 @@ class ValidationProfileTests(unittest.TestCase):
         answer={'status':'complete','findings':[{'part':1,'proposal':'coerente','quote':VALIDATION_CASES[0]['text']}], 'protocol':{'version':mr.PROFILE},'coverage':{'successful_chunks':1},'limits':[]}
         with patch('jamovi_audit.validation.assess_relation',return_value=answer):
             result=run_validation(config,cases=VALIDATION_CASES[:1])
-        self.assertEqual(result['evaluation_profile'],'minerva-single-question-evidence-1.0')
+        self.assertEqual(result['evaluation_profile'],'minerva-single-question-evidence-2.0-hf-tokenizer')
         self.assertEqual(result['cases'][0]['protocol'],answer['protocol'])
         self.assertEqual(result['cases'][0]['coverage'],answer['coverage'])
+
+class GuardAndValidationContinuationTests(unittest.TestCase):
+    def test_statistical_sia_is_not_mistaken_for_ai_authorship(self):
+        from jamovi_audit.local_llm import _AUTHORSHIP
+        self.assertIsNone(_AUTHORSHIP.search('La probabilità che l’ipotesi nulla sia vera non è il valore p.'))
+        self.assertIsNotNone(_AUTHORSHIP.search('Una probabilità alta di origine IA.'))
+
+    def test_received_invalid_response_does_not_abort_remaining_benchmark_cases(self):
+        from jamovi_audit.validation import run_validation
+        from jamovi_audit.validation_cases import VALIDATION_CASES
+        config={'enabled':True,'provider':'llamacpp','model':'minerva-7b-instruct-q4-local'}
+        invalid={'status':'unavailable','findings':[],'response_count':1,'limits':['Invalid response']}
+        valid={'status':'complete','findings':[{'part':1,'proposal':'coerente'}],'response_count':1,'limits':[]}
+        with patch('jamovi_audit.validation.assess_relation',side_effect=[invalid,valid]):result=run_validation(config,cases=VALIDATION_CASES[:2])
+        self.assertEqual(result['attempted'],2)
+        self.assertTrue(result['cases'][0]['response_received'])

@@ -34,6 +34,8 @@ def _lexical(tokens):
 
 
 def _document_blocks(document):
+    if isinstance((document or {}).get('evidence_sources'),list):
+        return [dict(source,index=source.get('location',source.get('id','?'))) for source in document['evidence_sources']]
     result=list((document or {}).get('paragraphs',[]))
     for table in (document or {}).get('tables',[]):
         for ri,row in enumerate(table.get('rows',[])):
@@ -264,6 +266,14 @@ def render_report(reports, comparisons, metadata=None):
                 if summary.get('zip_entries'):
                     out.append('<tr><td>Orologi delle componenti interne ZIP</td><td>'+e(summary['zip_entries'])+'</td><td>ZIP entry; fuso sconosciuto; precisione 2 secondi. Non certificano il salvataggio.</td></tr>')
                 out.append('<tr><td>Voce nello ZIP delle consegne</td><td>'+e(summary.get('source_zip_metadata') or 'Sconosciuta')+'</td><td>Metadato della voce esterna; distinto dagli orari interni e dalle proprietà Word.</td></tr></tbody></table><p><strong>Limiti:</strong> '+e(summary.get('limits','Metadati modificabili, non autenticati; non provano paternità o direzione degli scambi.'))+'</p>')
+        structured=r.get('evidence')
+        if isinstance(structured,dict):
+            out.append('<h3>Tracciabilità delle evidenze</h3><p>Schema '+e(structured.get('version'))+'; copertura: '+e(structured.get('coverage',{}))+'. I punteggi di supporto riguardano la tracciabilità delle fonti, non la correttezza semantica o probabilità di frode.</p>')
+            out.append('<p>Artefatti: '+e(structured.get('artifacts',[]))+'</p>')
+            out.append('<p>Il catalogo strutturato completo è disponibile nell’esportazione forensic JSON. I rilievi e le citazioni sono riportati nelle sezioni successive.</p>')
+        compatibility=r.get('compatibility')
+        if isinstance(compatibility,dict):
+            out.append('<h3>Compatibilità dei lettori</h3><p>'+e(compatibility)+'</p>')
         linguistic=r.get('linguistic')
         if isinstance(linguistic,dict):
             out.append('<h3>Analisi linguistica — proposte per il tutor</h3><p>Stato: '+e(linguistic.get('status','non disponibile'))+'; provider: '+e(linguistic.get('provider','sconosciuto'))+'; modello: '+e(linguistic.get('model','sconosciuto'))+'; rubrica: '+e(linguistic.get('rubric_version','non specificata'))+'. Ogni rilievo di questa sezione è una proposta da valutare e non modifica automaticamente gli esiti dei controlli deterministici.</p>')

@@ -4,6 +4,9 @@ on:
     branches: [feature/minerva-locale]
     paths:
       - jamovi_audit/minerva_review.py
+      - jamovi_audit/minerva_tokenizer.py
+      - jamovi_audit/minerva_unicode9.py
+      - tools/prepare_minerva.py
       - jamovi_audit/local_llm.py
       - jamovi_audit/validation.py
       - jamovi_audit/validation_cases.py

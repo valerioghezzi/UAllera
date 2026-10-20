@@ -20,7 +20,7 @@ class LocalEngineError(RuntimeError):
 _DEFAULT_PORTS = {'ollama': 11434, 'lmstudio': 1234, 'llamacpp': 8080}
 _MAX_RESPONSE = 1024 * 1024
 _CLOUD = re.compile(r'(?:^|[^a-z])(?:cloud|remote)(?:$|[^a-z])', re.I)
-_AUTHORSHIP = re.compile(r'plagi|paternit|colpevol|autorial|autore\b|authorship|generated\s+by|generat[oaie]\s+(?:da|con)\s+(?:ia|ai|chatgpt)|probabilit.{0,30}(?:ia\b|ai\b)', re.I)
+_AUTHORSHIP = re.compile(r'plagi|paternit|colpevol|autorial|autore\b|authorship|generated\s+by|generat[oaie]\s+(?:da|con)\s+(?:ia|ai|chatgpt)|probabilit.{0,30}\b(?:ia|ai)\b', re.I)
 
 # Generic teaching examples only; no assignment IDs, computed answers or key.
 RUBRIC = r"""

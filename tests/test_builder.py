@@ -34,4 +34,5 @@ class PortableLayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('tools.build_windows.verify_runtime'):
             folder, bundle=build('x64',buffer.getvalue(),Path(directory))
             self.assertTrue((folder/'tools'/'build_windows.py').is_file())
+            self.assertTrue((folder/'docs'/'Affidabilita.md').is_file())
             self.assertTrue(bundle.is_file())

@@ -6,6 +6,7 @@ import re
 import struct
 import zlib
 import xml.etree.ElementTree as ET
+from xml.parsers import expat
 from .archive import safe_zip
 from .protobuf import fields, val, string, signed, MAX_DEPTH
 
@@ -210,7 +211,17 @@ W='{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
 
 def _xml(data):
     if len(data)>16*1024*1024:raise ValueError('XML troppo grande')
-    if b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():raise ValueError('DTD XML non consentito')
+    # Expat recognizes the declared encoding before invoking these handlers;
+    # a raw byte search misses UTF-16 declarations and internal entities.
+    def reject(*args):
+        raise ValueError('DTD o entità XML non consentiti')
+    parser=expat.ParserCreate()
+    parser.StartDoctypeDeclHandler=reject
+    parser.EntityDeclHandler=reject
+    parser.ExternalEntityRefHandler=reject
+    parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
+    try:parser.Parse(data,True)
+    except expat.ExpatError as exc:raise ValueError('XML non valido') from exc
     return ET.fromstring(data)
 
 def _text(node):

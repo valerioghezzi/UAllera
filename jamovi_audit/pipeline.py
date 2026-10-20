@@ -2,7 +2,11 @@
 from pathlib import Path
 from collections import Counter
 import json
+import hashlib
 from . import __version__
+from .parse_cache import ParsingCache
+from .evidence import build_evidence_bundle
+from .diagnostics import compatibility_snapshot, comparison_snapshot
 from .archive import safe_zip, inventory
 from .readers import read_omv, read_docx
 from .checks import check_submission
@@ -18,12 +22,14 @@ def load_reference():
     return json.loads(path.read_text(encoding='utf-8'))
 
 
-def audit_zip(data: bytes, progress=None, cancelled=None, linguistic_config=None) -> dict:
+def audit_zip(data: bytes, progress=None, cancelled=None, linguistic_config=None, *, use_cache=True) -> dict:
     """Audit a class ZIP without modifying any supplied bytes."""
     def check_cancelled():
         if cancelled is not None and cancelled():
             raise InterruptedError('Controllo annullato')
 
+    if not isinstance(use_cache,bool):raise ValueError('use_cache deve essere booleano.')
+    cache=ParsingCache() if use_cache else ParsingCache(max_entries=0,max_bytes=0)
     linguistic_config = validate_config(linguistic_config)
     minerva_profile = (linguistic_config.get('enabled') and linguistic_config['provider'] == 'llamacpp'
                        and linguistic_config['model'] == 'minerva-7b-instruct-q4-local')
@@ -56,7 +62,7 @@ def audit_zip(data: bytes, progress=None, cancelled=None, linguistic_config=None
                 documents[kind] = None
                 continue
             try:
-                documents[kind] = reader(entries[paths[0]])
+                documents[kind] = cache.read(kind,entries[paths[0]],reader)
             except Exception as exc:
                 # A single damaged document must not hide other students.
                 documents[kind] = {'errors': [f'Lettura non riuscita: {type(exc).__name__}: {exc}']}
@@ -99,8 +105,10 @@ def audit_zip(data: bytes, progress=None, cancelled=None, linguistic_config=None
                 interrupted = True
             else:
                 check_cancelled()
+        report['compatibility']=compatibility_snapshot(documents)
+        report['evidence']=build_evidence_bundle(report,documents)
         reports.append(report)
-        parsed[submission['key']] = documents
+        parsed[submission['key']] = comparison_snapshot(documents)
         if interrupted:
             break
     if cancelled_after_minerva_review():
@@ -134,8 +142,10 @@ def audit_zip(data: bytes, progress=None, cancelled=None, linguistic_config=None
                'file_count': sum(len(s.get('omv', [])) + len(s.get('docx', [])) for s in submissions[:len(reports)]),
                'version': __version__,
                'reference_available': reference is not None}
+    summary['cache_stats']=cache.stats()
+    summary['input_sha256']=hashlib.sha256(data).hexdigest()
     summary['linguistic'] = ('enabled' if linguistic_config.get('enabled') else 'disabled')
     html = render_report(reports, comparisons, summary)
     if progress is not None:
         progress(len(reports), len(submissions), 'Rapporto incompleto disponibile' if interrupted else 'Rapporto pronto')
-    return {'reports': reports, 'comparisons': comparisons, 'html': html, 'summary': summary}
+    return {'reports': reports, 'comparisons': comparisons, 'html': html, 'summary': summary,'cache_stats':cache.stats()}
