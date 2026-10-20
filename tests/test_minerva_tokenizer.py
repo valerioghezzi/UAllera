@@ -137,7 +137,7 @@ class OfficialOracleTests(unittest.TestCase):
         paths = os.environ['UALLERA_TOKENIZER_ORACLE'].split(os.pathsep)
         total = 0
         for path in paths:
-            oracle = json.loads(Path(path).read_text())
+            oracle = json.loads(Path(path).read_text(encoding='utf-8'))
             self.assertEqual(tokenizer.TOKENIZER_SHA256, oracle['tokenizer_sha256'])
             for case in oracle['cases']:
                 with self.subTest(path=Path(path).name, case=case['id']):
