@@ -54,6 +54,7 @@ class ManagedMinervaTests(unittest.TestCase):
         self.assertIn('<option value="minerva"', page)
         self.assertLess(page.index('value="minerva"'), page.index('value="ollama"'))
         self.assertNotIn('(facoltativa)', page)
+        self.assertRegex(page, r'<input id="timeout"[^>]*max="900"[^>]*value="900"')
 
     def test_managed_endpoints_require_session(self):
         for method, path in (('GET', '/api/minerva/status'), ('POST', '/api/minerva/start'), ('POST', '/api/minerva/cancel')):
@@ -68,6 +69,7 @@ class ManagedMinervaTests(unittest.TestCase):
             state = self.wait_ready()
         self.assertTrue(state['ready']); self.assertIs(self.server.managed_minerva, self.engine)
         self.assertEqual(self.server.minerva_destination, setup.call_args.args[0]); launch.assert_called_once()
+        self.assertEqual(600, launch.call_args.kwargs['startup_timeout'])
         self.assertNotIn(self.engine.api_key, json.dumps(state))
         _, _, body = self.request('GET', '/api/status', headers=self.auth())
         self.assertNotIn(self.engine.api_key.encode(), body)
@@ -115,6 +117,35 @@ class ManagedMinervaTests(unittest.TestCase):
         self.assertEqual(config['endpoint'], self.engine.base_url)
         self.assertEqual(config['model'], self.engine.model)
         self.assertNotIn('forged', repr(config))
+        self.assertEqual(900, config['timeout'])
+
+    def test_managed_direct_config_default_is_900_seconds(self):
+        self.activate()
+        with patch.object(self.app, 'validate_config', wraps=self.app.validate_config) as normalize:
+            status, _, _ = self.request('GET', '/api/models?provider=minerva', headers={**self.auth(), 'X-Local-Provider': 'minerva'})
+        self.assertEqual(200, status)
+        self.assertEqual(900, float(normalize.call_args.args[0]['timeout']))
+
+    def test_explicit_tutor_timeout_is_preserved_and_ceiling_remains_900(self):
+        self.activate()
+        for timeout in ('17', '900'):
+            with self.subTest(timeout=timeout):
+                finished = threading.Event(); captured = []
+                def audit(data, **kwargs):
+                    captured.append(kwargs['linguistic_config'])
+                    finished.set()
+                    return {'html': 'Report locale', 'summary': {'student_count': 0}}
+                headers = {**self.auth(), 'X-Local-Provider': 'minerva', 'X-Local-Timeout': timeout}
+                with patch.object(self.app, 'audit_zip', side_effect=audit):
+                    self.assertEqual(202, self.request('POST', '/api/scan', b'fixture-zip', headers)[0])
+                    self.assertTrue(finished.wait(3))
+                    deadline = time.monotonic()+3
+                    while self.server.state['busy']:
+                        if time.monotonic() > deadline: self.fail('Audit did not finish')
+                        time.sleep(.01)
+                self.assertEqual(float(timeout), captured[0]['timeout'])
+        headers['X-Local-Timeout'] = '901'
+        self.assertEqual(400, self.request('POST', '/api/scan', b'fixture-zip', headers)[0])
 
     def test_managed_models_use_owned_profile_without_browser_endpoint(self):
         self.activate()

@@ -91,15 +91,20 @@ jobs:
           before=time.monotonic()
           print('Preparing pinned public assets for native transport check:',arch,flush=True)
           prepared=prepare(Path('.minerva-smoke'),arch)
+          setup_seconds=round(time.monotonic()-before,3)
           text='Una correlazione descrive una associazione, ma da sola non dimostra un rapporto di causa ed effetto.'
           document={'sha256':hashlib.sha256(text.encode()).hexdigest(),'paragraphs':[{'text':text,'location':'Synthetic paragraph 1'}]}
+          started=time.monotonic()
           with launch(prepared) as server:
+              startup_seconds=round(time.monotonic()-started,3)
               config=local_llm.validate_config({'enabled':True,'provider':'llamacpp','endpoint':server.base_url,'model':server.model,'timeout':900,'_managed_minerva':server})
+              started=time.monotonic()
               result=minerva_review.review(document,{},None,config,target_part=6,criterion='Distinguere associazione e causalità: una correlazione da sola non dimostra causalità.')
+              review_seconds=round(time.monotonic()-started,3)
               assert result['status']=='complete',result['limits']
               assert result['response_count']==1 and result['coverage']['successful_chunks']==1
           assert server.cleanup_complete
-          proof={'architecture':arch,'seconds_including_setup':round(time.monotonic()-before,3),'model_sha256':MODEL.sha256,'runtime_sha256':RUNTIMES[arch].sha256,'tokenizer_sha256':TOKENIZER.sha256,'result':result,'scope':'One synthetic CPU inference, authenticated loopback, official input and cleanup. Transport only; no semantic accuracy claim.'}
+          proof={'architecture':arch,'seconds_including_setup':round(time.monotonic()-before,3),'setup_seconds':setup_seconds,'startup_seconds':startup_seconds,'review_seconds':review_seconds,'model_sha256':MODEL.sha256,'runtime_sha256':RUNTIMES[arch].sha256,'tokenizer_sha256':TOKENIZER.sha256,'result':result,'scope':'One synthetic CPU inference, authenticated loopback, official input and cleanup. Transport only; no semantic accuracy claim.'}
           (proof_folder/'Prova_Minerva.json').write_text(json.dumps(dict(proof,status='complete'),ensure_ascii=False,indent=2),encoding='utf-8')
           print('Native Minerva transport and cleanup passed:',arch,flush=True)
       - name: Conserva prova nativa del modello

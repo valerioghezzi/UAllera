@@ -1,5 +1,6 @@
 """Bounded setup and real loopback/subprocess fixtures, without model inference."""
 import hashlib
+import http.client
 import io
 from pathlib import Path
 import socket
@@ -256,7 +257,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             for byte in data:
                 self.wfile.write(bytes([byte])); self.wfile.flush(); time.sleep(.1)
         else: self.wfile.write(data)
-http.server.HTTPServer(('127.0.0.1', int(port)), Handler).serve_forever()
+fixture = http.server.HTTPServer(('127.0.0.1', int(port)), Handler)
+with open(request_log + '.listening', 'w') as output: output.write('bound')
+fixture.serve_forever()
 '''
 
 
@@ -278,8 +281,21 @@ class LaunchTests(SetupFixture, unittest.TestCase):
     def spawn_fixture(self, args, **kwargs):
         self.commands.append(args)
         value = lambda flag: args[args.index(flag) + 1]
+        listening = Path(str(self.request_log) + '.listening')
+        listening.unlink(missing_ok=True)
         process = self.real_popen([sys.executable, '-c', _FIXTURE_SERVER, value('--port'), value('--api-key'), value('--alias'), self.fixture_mode, str(self.request_log)], **kwargs)
         self.processes.append(process)
+        if self.fixture_mode not in ('exit', 'timeout'):
+            # Fixture bootstrap is not the readiness behavior under test.
+            # Start launch's short deadline only after the child has bound its
+            # listener; no fixed sleep assumes Python starts within 400 ms.
+            deadline = time.monotonic() + 10
+            while not listening.exists():
+                if process.poll() is not None:
+                    self.fail('Fixture exited before binding its HTTP listener')
+                if time.monotonic() >= deadline:
+                    self.fail('Fixture did not bind its HTTP listener within 10 seconds')
+                time.sleep(.01)
         return process
 
     def test_launch_authenticated_offline_loopback_and_context_managed(self):
@@ -314,10 +330,21 @@ class LaunchTests(SetupFixture, unittest.TestCase):
 
     def test_readiness_deadline_bounds_a_slow_dripping_health_body(self):
         self.fixture_mode = 'health_drip'
-        before = time.monotonic()
-        with self.assertRaises(TimeoutError):
-            minerva.launch(self.prepared, startup_timeout=.4)
-        self.assertLess(time.monotonic() - before, 1.2)
+        loading = []; received = []
+        original_read = http.client.HTTPResponse.read1
+        def read_body(response, *args, **kwargs):
+            data = original_read(response, *args, **kwargs)
+            if data: received.append(data)
+            return data
+        def progress(event):
+            if event['stage'] == 'loading' and not loading:
+                loading.append(time.monotonic())
+        with mock.patch.object(http.client.HTTPResponse, 'read1', autospec=True, side_effect=read_body):
+            with self.assertRaises(TimeoutError):
+                minerva.launch(self.prepared, startup_timeout=.4, progress=progress)
+        self.assertTrue(received, 'The test must read actual health body bytes before its deadline')
+        self.assertEqual(self.request_log.read_text().splitlines(), ['/health'])
+        self.assertLess(time.monotonic() - loading[0], 1.2)
         self.assertIsNotNone(self.processes[-1].poll())
 
     def test_health_ok_without_matching_alias_is_not_ready(self):

@@ -50,8 +50,8 @@ TOKENIZER = Asset(
 )
 RUNTIMES = {
     'x64': Asset('llama-b11756-uallera-static-win-x64.zip',
-        'https://github.com/valerioghezzi/UAllera/releases/download/minerva-b11756-static-1/llama-b11756-uallera-static-win-x64.zip',
-        5063594, '51506e6d3f525b76298ba1ec4864edc0001ad2d47cd3d25afa3c933920406cb8'),
+        'https://github.com/valerioghezzi/UAllera/releases/download/minerva-b11756-static-2/llama-b11756-uallera-static-win-x64.zip',
+        5038436, '96a01cba8ac316bc64b514d5ff19270af160bd9ab426c54fc04b3c3a6d729251'),
     'ARM64': Asset('llama-b11756-uallera-static-win-ARM64.zip',
         'https://github.com/valerioghezzi/UAllera/releases/download/minerva-b11756-static-1/llama-b11756-uallera-static-win-ARM64.zip',
         4819205, 'f31d1b20bbdf1771e1a03d1ab123b10de1fc16201b5747af2d4f28729239a34b'),

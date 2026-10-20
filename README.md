@@ -17,7 +17,7 @@ In alternativa, `Prepara_Minerva.cmd` prepara i file attraverso il runtime già 
 
 ## Minerva e stato della versione
 
-La versione di sviluppo `0.3.0-dev.3` integra **Minerva-7B-Instruct v1.0**, Sapienza/CINECA, nella conversione GGUF ufficiale Q4_K_M. Non è stato effettuato un addestramento aggiuntivo. Il modello interpreta le risposte; il tutor conferma ogni proposta.
+La versione di sviluppo `0.3.0-dev.4` integra **Minerva-7B-Instruct v1.0**, Sapienza/CINECA, nella conversione GGUF ufficiale Q4_K_M. Non è stato effettuato un addestramento aggiuntivo. Il modello interpreta le risposte; il tutor conferma ogni proposta.
 
 Il protocollo `minerva-evidence-2.0-hf-tokenizer` legge i paragrafi del corpo e delle tabelle nell’ordine XML, comprese tabelle annidate e controlli di contenuto riconosciuti. Non campiona i primi 128 paragrafi. Intestazioni, note, forme o altri contenuti non riconosciuti compaiono fra le esclusioni del rapporto.
 
