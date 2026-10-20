@@ -97,7 +97,7 @@ def render_validation(result):
            '<p>Prova su casi sintetici separati dagli esempi del prompt. Nessun voto automatico o certificazione di idoneità del modello.</p>',
            f"<p>Motore: {e(result['provider'])}; modello: {e(result['model'])}; stato: {e(result['status'])}. Avvio UTC: {e(result['started_utc'])}.</p>",
            f"<p>Profilo di valutazione: {e(result.get('evaluation_profile', 'documento completo, versione precedente'))}.</p>",
-           f"<p>Rubrica: {e(result['rubric_version'])}; corpus: {e(result['corpus_version'])}. SHA-256 corpus: <code>{e(result['corpus_sha256'])}</code>.</p>",
+           f"<p>Griglia di valutazione: {e(result['rubric_version'])}; corpus: {e(result['corpus_version'])}. SHA-256 corpus: <code>{e(result['corpus_sha256'])}</code>.</p>",
            f"<p>Casi previsti: {result['planned']}; tentati: {result['attempted']}; con esito citabile: {result['evaluated']}; non eseguiti: {result['unexecuted']}. Durata: {result['seconds']} secondi.</p>",
            '<ul>' + ''.join('<li>'+e(item)+'</li>' for item in result['limits']) + '</ul>',
            '<table><thead><tr><th>Misura</th><th>Valore</th><th>Significato</th></tr></thead><tbody>']

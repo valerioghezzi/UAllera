@@ -66,3 +66,7 @@ python tools/validate_local.py --provider ollama --model nome-modello --output V
 ```
 
 Vengono salvati un HTML autonomo e il corrispondente JSON. Il precedente comando `tools/calibrate_local.py` conserva i35 esempi già visibili nel prompt per verificare l'aderenza alle dimostrazioni.
+
+La verifica dei 70 casi valuta una domanda alla volta, con i criteri e le cinque dimostrazioni della parte pertinente. La domanda è un'istruzione del tutor separata dal testo da esaminare; la risposta è limitata a un solo giudizio citabile. Il profilo `single-question-1.1` compare nel rapporto. La revisione di una relazione completa mantiene i criteri delle sette parti e le 35 dimostrazioni: la concordanza sulle domande isolate non misura automaticamente quella sulle relazioni complete.
+
+La prova di sviluppo `python tools/ci_real_model.py` scarica un modello e un runtime CPU pubblici con SHA-256 prefissati, esamina i 70 casi e due relazioni sintetiche attraverso la pipeline completa. È riservata a Linux x64 e richiede Internet solo per scaricare questi asset pubblici. L'applicazione offline non richiama questo comando e non scarica modelli. I file degli studenti e i riferimenti privati della consegna restano esclusi dal test su GitHub.
