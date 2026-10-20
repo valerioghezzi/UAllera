@@ -35,3 +35,19 @@ python app.py
 Il workflow GitHub esegue i test su Linux, Windows x64 e Windows ARM64 e verifica l'architettura dell'interprete. Un workflow predisposto non equivale a un test passato: consultare gli esiti effettivi dei run.
 
 La repository pubblica contiene soltanto codice e casi artificiali. Le consegne reali, la soluzione completa e i riferimenti privati dell'attività rimangono sul PC. Una cartella `reference` locale può aggiungere i riferimenti numerici e i testi da escludere dai confronti.
+
+## Interpretazione linguistica locale
+
+La funzione facoltativa usa Ollama, LM Studio oppure llama.cpp già avviati sul PC. Nell'interfaccia scegli il motore, premi **Elenca modelli locali**, seleziona il modello e avvia il controllo. Sono ammessi solo indirizzi HTTP di loopback; il programma rifiuta proxy, redirect e modelli dichiarati cloud o remoti. Non richiede chiavi API né acquista crediti. Per garantire che anche il motore scelto resti sul PC, carica prima il modello e svolgi l'analisi senza connessione Internet.
+
+Le rubriche italiane distinguono risposte corrette, errori concettuali, parafrasi, negazioni, mancanze e istruzioni inserite nella relazione. Le proposte riportano citazioni riscontrate nel Word e restano separate dai controlli deterministici. Se il motore è spento, la valutazione linguistica risulta non disponibile e il rapporto dei file viene comunque prodotto.
+
+Non sono inclusi pesi addestrati o un rilevatore di testi AI. La preparazione linguistica consiste in rubriche, esempi e un corpus di calibrazione; la qualità va misurata sul modello concretamente installato. I test del protocollo non misurano l'accuratezza del modello.
+
+Documentazione dei protocolli: [Ollama](https://docs.ollama.com/api/chat), [LM Studio](https://lmstudio.ai/docs/developer/openai-compat/chat-completions), [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
+
+Esempio CLI:
+
+```bash
+python audit_cli.py consegne.zip --local-engine ollama --model nome-modello-locale -o Rapporto_esercitazioni.html
+```

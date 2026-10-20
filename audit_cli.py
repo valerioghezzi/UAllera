@@ -10,12 +10,19 @@ def main():
     parser = argparse.ArgumentParser(description='Controllo locale delle esercitazioni jamovi')
     parser.add_argument('zip', type=Path, help='ZIP delle cartelle degli studenti')
     parser.add_argument('-o', '--output', type=Path, default=Path('Rapporto_esercitazioni.html'))
+    parser.add_argument('--local-engine', choices=['ollama', 'lmstudio', 'llamacpp'])
+    parser.add_argument('--model', default='')
+    parser.add_argument('--endpoint', default='')
     args = parser.parse_args()
     if args.output.suffix.lower() != '.html':
         parser.error('Il rapporto deve avere estensione .html')
     if args.zip.stat().st_size > 512 * 1024 * 1024:
         parser.error('ZIP superiore al limite di 512 MiB')
-    result = audit_zip(args.zip.read_bytes())
+    if args.local_engine and not args.model:
+        parser.error('--model è richiesto con --local-engine')
+    result = audit_zip(args.zip.read_bytes(), linguistic_config={
+        'enabled': bool(args.local_engine), 'provider': args.local_engine or 'ollama',
+        'model': args.model, 'endpoint': args.endpoint})
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fd, temp = tempfile.mkstemp(prefix='.rapporto-', suffix='.tmp', dir=args.output.parent)
     try:

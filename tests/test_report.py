@@ -132,6 +132,43 @@ class ReportTests(unittest.TestCase):
         parsed={'x':{'docx':{'paragraphs':[{'index':1,'text':'Come interpreti il risultato? '+answer}]}},'y':{'docx':{'paragraphs':[{'index':2,'text':answer}]}}}
         self.assertTrue(compare_submissions([report('x'),report('y')],parsed))
 
+    def test_metadata_panel_retains_sources_timezone_precision_and_escapes(self):
+        r=report('x')
+        r['metadata']={'docx':{'authors':[{'field':'creator','value':'<script>bad</script>','source':'docProps/core.xml'}],
+                             'dates':{'created':{'raw':'2026-01-01T12:00:00Z','iso':'2026-01-01T12:00:00+00:00','timezone':'UTC','precision_seconds':1,'source':'docProps/core.xml:created','valid':True}},
+                             'zip_entries':{'count':3,'min':'2026-01-02T12:00:00','max':'2026-01-02T12:00:00','timezone':'unknown','precision_seconds':2},
+                             'source_zip_metadata':None,'limits':'Metadati modificabili, non certificano autore.'}}
+        html=render_report([r],[])
+        self.assertIn('Metadati osservati',html)
+        self.assertIn('docProps/core.xml',html)
+        self.assertIn('UTC',html)
+        self.assertIn('precisione',html)
+        self.assertIn('&lt;script&gt;',html)
+        self.assertNotIn('<script>',html)
+        self.assertIn('Metadati modificabili',html)
+
+    def test_linguistic_findings_remain_separate_tutor_proposals(self):
+        r=report('x');r['linguistic']={'status':'completed','provider':'locale','model':'test-model','findings':[{'part':5,'observed':'<b>Conclusione da rivedere</b>','location':'Word §5'}],'limits':['Proposta del modello, da verificare.']}
+        html=render_report([r],[])
+        self.assertIn('Analisi linguistica',html)
+        self.assertIn('proposte per il tutor',html)
+        self.assertIn('test-model',html)
+        self.assertIn('&lt;b&gt;Conclusione',html)
+        self.assertIn('Proposta del modello',html)
+
+    def test_temporal_corroboration_renders_gap_and_basis_without_authorship_claim(self):
+        comp={'students':['x','y'],'labels':['X','Y'],'kind':'metadati_temporali','corroborates':['testo_parziale'],
+              'evidence':[{'left':'2026-01-01','right':'2026-01-01','location_left':'Word/core','location_right':'Word/core','gap_seconds':30,'comparison_basis':'orari Word con fuso noto','precision_seconds':1}], 'limits':'Orari modificabili, nessuna attribuzione di paternità.'}
+        html=render_report([report('x'),report('y')],[comp])
+        self.assertIn('gap_seconds',html)
+        self.assertIn('orari Word con fuso noto',html)
+        self.assertIn('testo_parziale',html)
+
+    def test_part_heading_in_same_paragraph_preserves_trailing_answer(self):
+        text='Parte 1. Le categorie presentano un ordinamento ma nascondono distanze psicologiche diseguali e perciò occorre discutere accuratamente le assunzioni della misurazione prima di aggregare risposte.'
+        parsed={k:{'docx':{'paragraphs':[{'index':1,'text':text}]}} for k in ('x','y')}
+        self.assertTrue(compare_submissions([report('x'),report('y')],parsed))
+
 
 if __name__ == '__main__':
     unittest.main()

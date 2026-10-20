@@ -42,7 +42,7 @@ def build(arch, runtime_data, destination):
     folder.mkdir(parents=True)
     for filename in ['app.py', 'audit_cli.py', 'README.md']:
         shutil.copy2(source / filename, folder / filename)
-    for name in ['jamovi_audit', 'tests', 'reference']:
+    for name in ['jamovi_audit', 'tests', 'tools', 'reference']:
         if (source / name).is_dir():
             shutil.copytree(source / name, folder / name, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     runtime = folder / 'runtime'

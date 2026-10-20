@@ -5,7 +5,11 @@ from jamovi_audit.readers import read_omv, read_docx
 def archive(entries):
     b=io.BytesIO()
     with zipfile.ZipFile(b,'w') as z:
-        for k,v in entries.items(): z.writestr(k,v)
+        for k,v in entries.items():
+            info=zipfile.ZipInfo('fixture')
+            info.filename=k
+            info.orig_filename=k
+            z.writestr(info,v)
     return b.getvalue()
 def vi(n):
     if n<0:n+=1<<64

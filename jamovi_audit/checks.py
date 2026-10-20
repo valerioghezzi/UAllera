@@ -9,6 +9,7 @@ import math
 import re
 import statistics
 from collections import Counter
+from itertools import combinations
 
 STATES = ('Verificato', 'Mancante', 'Errato', 'Da verificare', 'Non verificabile', 'Non applicabile')
 SCALES = ('A', 'C', 'E', 'N', 'O')
@@ -57,6 +58,67 @@ def _cell_values(column):
 
 def _table_columns(node):
     return [c for c in node.get('columns', []) if c.get('visible', True) and any(v is not None and v != '' for v in _cell_values(c))]
+
+
+def _row_label(value):
+    # Actual saved jmv rowNames are JSON-quoted strings; cell labels are plain.
+    if isinstance(value,str) and len(value)>=2 and value[0]==value[-1]=='"':
+        try:
+            import json
+            return json.loads(value)
+        except ValueError:
+            pass
+    return value
+
+
+def _rows_for_stat(node, columns, stat_name):
+    tag=re.search(r'\[(.+)\]$',stat_name)
+    preferred=('var['+tag.group(1)+']',) if tag else ()
+    for name in preferred+('name','dep'):
+        col=next((c for c in columns if c.get('name')==name),None)
+        if col is not None:
+            return [_row_label(v) for v in _cell_values(col)]
+    return [_row_label(v) for v in node.get('row_names',[])]
+
+
+def _reported_number(text, start, allow_percent=False):
+    """Consume the complete numeric token, never validate a decimal prefix."""
+    match=re.match(r'[+-]?(?:\d[\d.,\u00a0\u202f ]*|[.,]\d+)(?:[eE][+-]?\d+)?(?:\s*%)?',text[start:])
+    if not match:return None,None,''
+    raw=match.group().strip()
+    tail=text[start+match.end():]
+    if tail and ((not match.group()[-1].isspace() and (tail[0].isalnum() or tail[0]=='_')) or re.match(r'\s*[×*]\s*10',tail)):
+        return None,None,raw+tail[:20]
+    percent=raw.endswith('%')
+    if percent and not allow_percent:return None,None,raw
+    raw_number=raw[:-1].rstrip() if percent else raw
+    # A sentence-ending dot/comma is punctuation, not another decimal digit.
+    raw_number=raw_number.rstrip('., ')
+    exponent_match=re.search(r'[eE]([+-]?\d+)$',raw_number)
+    exponent=int(exponent_match.group(1)) if exponent_match else 0
+    mantissa=raw_number[:exponent_match.start()] if exponent_match else raw_number
+    if abs(exponent)>308:return None,None,raw
+    if re.search(r'[ \u00a0\u202f]',mantissa):
+        if not re.fullmatch(r'[+-]?\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:[.,]\d+)?',mantissa):return None,None,raw
+        mantissa=re.sub(r'[ \u00a0\u202f]','',mantissa)
+    if '.' in mantissa and ',' in mantissa:
+        decimal='.' if mantissa.rfind('.')>mantissa.rfind(',') else ','
+        grouping=',' if decimal=='.' else '.'
+        integer,fraction=mantissa.rsplit(decimal,1)
+        if not re.fullmatch(r'[+-]?\d{1,3}(?:'+re.escape(grouping)+r'\d{3})+',integer) or not fraction.isdigit():return None,None,raw
+        normalized=integer.replace(grouping,'')+'.'+fraction
+        decimals=len(fraction)
+    elif mantissa.count('.')>1 or mantissa.count(',')>1:
+        separator='.' if '.' in mantissa else ','
+        if not re.fullmatch(r'[+-]?\d{1,3}(?:'+re.escape(separator)+r'\d{3})+',mantissa):return None,None,raw
+        normalized=mantissa.replace(separator,'');decimals=0
+    else:
+        normalized=mantissa.replace(',','.')
+        decimals=len(normalized.split('.')[1]) if '.' in normalized else 0
+    value=_num(normalized+('e'+str(exponent) if exponent_match else ''))
+    try:tolerance=.5*10.0**(exponent-decimals)+1e-10
+    except OverflowError:return None,None,raw
+    return value,tolerance,raw
 
 
 def _status_problem(obj):
@@ -132,6 +194,10 @@ def check_submission(submission, omv, docx, reference=None):
     add('P2.filter.counts', 2, 'OMV', 'Verificato' if age else 'Non verificabile', 'Conteggio indipendente del criterio adulti',
         f'Righe {len(age)}; adulti {len(adults)}; esclusi {len(age)-len(adults)}.', 'Conteggio del criterio age ≥ 18, distinto dall’applicazione effettiva del filtro.', 'dati/age')
     def calculated(name, part, expected, description):
+        if active and str(columns.get(name,{}).get('meta',{}).get('columnType','')).lower()=='output':
+            adult_set=set(adults)
+            expected=[value if i in adult_set else None for i,value in enumerate(expected)]
+            description+=' Colonna Output di jamovi: confronto delle righe adulte; valori delle righe filtrate fuori perimetro.'
         if name not in columns:
             state, obs = absent, 'Colonna non presente.'
         elif not expected or len(expected) != len(values(name)):
@@ -236,7 +302,7 @@ def check_submission(submission, omv, docx, reference=None):
                 problems.append(('Mancante','Tabella vuota o senza celle leggibili.',loc)); continue
             # Actual rows/columns must identify all requested variables, except
             # single-scale reliability where rows are explicitly scale/items.
-            labels = set(str(x) for c in cols for x in _cell_values(c)) | {str(c.get('name')) for c in cols} | {str(c.get('title')) for c in cols} | set(map(str,node.get('row_names',[])))
+            labels = set(str(x) for c in cols for x in _cell_values(c)) | {str(c.get('name')) for c in cols} | {str(c.get('title')) for c in cols} | {str(_row_label(v)) for v in node.get('row_names',[])}
             if 'frequencies' in nodes:
                 labels |= set(map(str,node.get('path',[])))
             needs_item_rows = analysis_name.lower() == 'reliability' and 'items' in nodes
@@ -244,6 +310,54 @@ def check_submission(submission, omv, docx, reference=None):
                 problems.append(('Non verificabile','Tabella presente; righe/colonne non attribuibili a tutte le variabili richieste.',loc)); continue
             cnames = {str(c.get('name', '')).lower() for c in cols}
             missing_stats = [st for st in stats if not any(re.fullmatch(st, n, re.I) for n in cnames)]
+            if analysis_name.lower() in ('ttestis','reliability'):
+                missing_stats=[]
+                for st in stats:
+                    numeric_columns=[c for c in cols if re.fullmatch(st,str(c.get('name','')),re.I)]
+                    complete=False
+                    for col in numeric_columns:
+                        cells=list(_cell_values(col))
+                        if analysis_name.lower()=='reliability' and 'scale' in nodes:
+                            complete=bool(cells) and _num(cells[0]) is not None
+                        else:
+                            rows=_rows_for_stat(node,cols,str(col.get('name','')))
+                            complete=all(sum(label==variable for label in rows)==1 and any(label==variable and i<len(cells) and _num(cells[i]) is not None for i,label in enumerate(rows)) for variable in requested)
+                        if complete:break
+                    if not complete:missing_stats.append(st)
+            elif analysis_name.lower()=='corrmatrix':
+                byname={str(c.get('name','')):c for c in cols}
+                channels=('r','rp','rciu','rcil','n') if (options or {}).get('pearson') else ('rho',)
+                pairs=list(combinations(vars_,2)) if (options or {}).get('pearson') else [('education',v) for v in vars_ if v!='education']
+                for channel in channels:
+                    rows=[_row_label(v) for v in _cell_values(byname.get('.name['+channel+']',{}))]
+                    for left,right in pairs:
+                        present=False
+                        for column,row in ((left,right),(right,left)):
+                            cells=list(_cell_values(byname.get(column+'['+channel+']',{})))
+                            if sum(label==row for label in rows)==1 and any(label==row and i<len(cells) and _num(cells[i]) is not None for i,label in enumerate(rows)):
+                                present=True
+                        if not present:missing_stats.append(f'{left}↔{right}[{channel}]')
+            if analysis_name.lower() == 'descriptives' and any(n.startswith('stat[') for n in cnames):
+                # jmv 2.7.4 encodes a statistic as adjacent stat[mean] and
+                # O[mean] columns (or O[meanmale], O[meanfemale] when split).
+                # Verify actual numeric cells for the requested variable, not
+                # merely the presence of the statistic's label column.
+                byname={str(c.get('name','')):c for c in cols}
+                groups={str(v) for c in cols if str(c.get('name','')).startswith('var1[') for v in _cell_values(c) if v is not None}
+                suffixes=groups if split else {''}
+                missing_stats=[]
+                for st in stats:
+                    saved_stat={'sw':'sww','swp':'sw'}.get(st,st)
+                    complete=bool(suffixes) and (not split or len(suffixes)>=2)
+                    for suffix in suffixes:
+                        stat_key=saved_stat+suffix
+                        if 'stat['+stat_key+']' not in byname:
+                            complete=False
+                        for variable in requested:
+                            col=byname.get(variable+'['+stat_key+']',{})
+                            if not any(_num(v) is not None for v in _cell_values(col)):
+                                complete=False
+                    if not complete:missing_stats.append(st)
             if missing_stats:
                 problems.append(('Mancante','Colonne richieste mancanti/nascoste/vuote: '+', '.join(missing_stats),loc)); continue
             status, obs, location = 'Verificato','Tabella presente con celle e colonne richieste; correttezza numerica non ricalcolata.',loc
@@ -281,13 +395,15 @@ def check_submission(submission, omv, docx, reference=None):
         output(f'P5.{s}.plot',5,'ttestIS',[s],['desc'],text=f'{s}: grafico descrittivo per gender')
         levene=[]
         for a in analyses:
-            if str(a.get('name','')).lower()=='ttestis':
+            opts=a.get('options',{})
+            if str(a.get('name','')).lower()=='ttestis' and a.get('ns','jmv') in ('jmv','') and isinstance(opts,dict) and opts.get('group')=='gender' and s in set(_flatten(opts.get('vars',[]))):
                 for node in a.get('results',[]):
                     if node.get('name')=='eqv' and not (_status_problem(a) or _status_problem(node)):
                         cs=_table_columns(node); labels=next((list(_cell_values(c)) for c in cs if c.get('name')=='name'),[])
                         ps=next((list(_cell_values(c)) for c in cs if c.get('name')=='p'),[])
                         if s in labels and labels.index(s)<len(ps):
-                            levene.append(_num(ps[labels.index(s)]))
+                            pvalue=_num(ps[labels.index(s)])
+                            levene.append(pvalue if pvalue is not None and 0<=pvalue<=1 and labels.count(s)==1 else None)
         if len(levene)==1 and levene[0] is not None and levene[0]>=.05:
             add(f'P5.{s}.welch',5,'OMV','Non applicabile',f'Welch per {s} se Levene significativo',f'p Levene = {levene[0]}','Welch richiesto quando p < .05.','analisi/ttestIS/eqv')
         elif len(levene)==1 and levene[0] is not None:
@@ -348,15 +464,13 @@ def check_submission(submission, omv, docx, reference=None):
             for m in regex.finditer(str(p.get('text',''))):
                 value=m.groupdict().get('value')
                 if value:
-                    raw=value.replace(',','.'); actual=_num(raw)
+                    actual,tolerance,raw=_reported_number(str(p.get('text','')),m.start('value'),claim.get('unit')=='percent')
                     expected=_num(claim.get('value'))
-                    decimals=len(raw.split('.')[1]) if '.' in raw else 0
-                    tolerance=.5*10**(-decimals)+1e-10
                     comp=m.groupdict().get('op','=')
-                    ok=(expected is not None and actual is not None and (expected<actual if comp=='<' else expected<=actual if comp=='<=' else abs(expected-actual)<=tolerance))
-                    matches.append(('Verificato' if ok else 'Errato',p,raw,tolerance))
+                    ok=(expected is not None and actual is not None and tolerance is not None and (expected<actual if comp=='<' else expected<=actual if comp=='<=' else abs(expected-actual)<=tolerance))
+                    matches.append(('Non verificabile' if actual is None or expected is None else 'Verificato' if ok else 'Errato',p,raw,tolerance))
         for j,(state,p,raw,tolerance) in enumerate(matches):
-            add('WORD.NUM.'+claim.get('id','claim')+('' if j==0 else '.'+str(j)),claim.get('part',0),'OMV–Word',state,claim.get('description','Affermazione numerica'),p.get('text',''),f"{claim.get('value')}; tolleranza arrotondamento {tolerance:g}; numero riportato {raw}.",f"Word §{p.get('index','?')} ↔ {claim.get('location','riferimento validato')}")
+            add('WORD.NUM.'+claim.get('id','claim')+('' if j==0 else '.'+str(j)),claim.get('part',0),'OMV–Word',state,claim.get('description','Affermazione numerica'),p.get('text',''),f"{claim.get('value')}; tolleranza arrotondamento {tolerance if tolerance is not None else 'numero/unità non risolvibile'}; token numerico completo {raw}.",f"Word §{p.get('index','?')} ↔ {claim.get('location','riferimento validato')}")
     counts=Counter(f['status'] for f in findings)
     return dict(key=submission.get('key',''),label=submission.get('label',submission.get('key','')),findings=findings,
                 coverage={'total':len(findings),'by_status':dict(counts),'automatic':counts['Verificato']+counts['Errato']+counts['Mancante']+counts['Non applicabile'],

@@ -49,7 +49,7 @@ def _prepared(document, excluded, prompt_shingles, diagnostics):
         diagnostics['cutoffs']['blocks_omitted']+=len(rawblocks)-2000
     for p in rawblocks[:2000]:
         text=str(p.get('text','')).strip();norm=_normal(text);ts=_tokens(text)
-        instruction=bool(re.match(r'^(?:parte\s*\d|(?:\d+[.)]\s*)?(?:spiegare|calcolare|descrivere|riportare|confrontare|interpretare|indicare|verificare|discutere|determinare|eseguire|costruire|perché|quale|quali|come si)\b)',norm))
+        instruction=bool(re.fullmatch(r'parte\s*\d+\s*[.:—-]?',norm) or re.match(r'^(?:\d+[.)]\s*)?(?:spiegare|calcolare|descrivere|riportare|confrontare|interpretare|indicare|verificare|discutere|determinare|eseguire|costruire|perché|quale|quali|come si)\b',norm))
         if not ts or norm in excluded or (instruction and '?' not in norm):
             stream.append(None);positions.append(None);continue
         remaining=max(0,40000-len(stream))
@@ -241,6 +241,35 @@ def render_report(reports, comparisons, metadata=None):
     out.append('<p>La ricerca usa sequenze letterali di almeno 8 token e almeno 3 parole lessicali; i passaggi con modifiche richiedono almeno 20 token, quattro parole lessicali condivise e un rapporto di sequenza di almeno 0,72. Parole tecniche inevitabili, numeri e formule non bastano da soli. Un esito senza rilievi non certifica autonomia; parafrasi, testo molto breve e candidati omessi dai limiti dichiarati possono sfuggire. La frequenza nella classe resta visibile anche per coincidenze diffuse.</p>')
     for i,r in enumerate(reports,1):
         out.append(f'<section id="student-{i}"><h2>{e(r.get("label"))}</h2><p>Identificativo locale: {e(r.get("key"))}</p><p>File esaminati: {e(r.get("paths",{}))}</p><p>Copertura: {e(r.get("coverage",{}))}</p>')
+        if r.get('metadata'):
+            out.append('<h3>Metadati osservati</h3><p>Proprietà modificabili dei documenti e degli archivi; nessuna data del filesystem dopo estrazione viene usata per dedurre la cronologia.</p>')
+            for kind,summary in r['metadata'].items():
+                if not isinstance(summary,dict):continue
+                out.append('<h4>'+e(kind.upper())+'</h4><table><thead><tr><th>Proprietà</th><th>Valore osservato</th><th>Fonte, fuso e precisione</th></tr></thead><tbody>')
+                authors=summary.get('authors',[])
+                for author in authors:
+                    out.append('<tr><td>'+e(author.get('field','autore'))+'</td><td>'+e(author.get('value','sconosciuto'))+'</td><td>'+e(author.get('source','fonte non risolta'))+'</td></tr>')
+                if not authors:out.append('<tr><td>Autore / ultima modifica</td><td>Sconosciuto: proprietà non disponibile</td><td>Non si deduce un autore dal nome del file.</td></tr>')
+                for date_name,date in summary.get('dates',{}).items():
+                    if not isinstance(date,dict):continue
+                    out.append('<tr><td>'+e(date_name)+'</td><td>'+e(date.get('raw') or 'Sconosciuto')+'</td><td>'+e({'source':date.get('source'),'timezone':date.get('timezone','unknown'),'precision_seconds':date.get('precision_seconds'),'valid':date.get('valid',False)})+'</td></tr>')
+                if summary.get('zip_entries'):
+                    out.append('<tr><td>Orologi delle componenti interne ZIP</td><td>'+e(summary['zip_entries'])+'</td><td>ZIP entry; fuso sconosciuto; precisione 2 secondi. Non certificano il salvataggio.</td></tr>')
+                out.append('<tr><td>Voce nello ZIP delle consegne</td><td>'+e(summary.get('source_zip_metadata') or 'Sconosciuta')+'</td><td>Metadato della voce esterna; distinto dagli orari interni e dalle proprietà Word.</td></tr></tbody></table><p><strong>Limiti:</strong> '+e(summary.get('limits','Metadati modificabili, non autenticati; non provano paternità o direzione degli scambi.'))+'</p>')
+        linguistic=r.get('linguistic')
+        if isinstance(linguistic,dict):
+            out.append('<h3>Analisi linguistica — proposte per il tutor</h3><p>Stato: '+e(linguistic.get('status','non disponibile'))+'; provider: '+e(linguistic.get('provider','sconosciuto'))+'; modello: '+e(linguistic.get('model','sconosciuto'))+'. Ogni rilievo di questa sezione è una proposta da valutare e non modifica automaticamente gli esiti dei controlli deterministici.</p>')
+            proposals=linguistic.get('findings',[])
+            if proposals:
+                out.append('<table><thead><tr><th>Proposta del modello</th><th>Evidenze e posizione</th></tr></thead><tbody>')
+                for finding in proposals:
+                    if isinstance(finding,dict):
+                        title=finding.get('requirement',finding.get('title',finding.get('category','Rilievo da verificare')))
+                        out.append('<tr><td>'+e(title)+'</td><td>'+e(finding)+'</td></tr>')
+                    else:out.append('<tr><td>Rilievo da verificare</td><td>'+e(finding)+'</td></tr>')
+                out.append('</tbody></table>')
+            else:out.append('<p>Nessuna proposta disponibile. Questo esito non certifica correttezza, autonomia o origine del testo.</p>')
+            out.append('<p><strong>Limiti dell’analisi linguistica:</strong> '+e(linguistic.get('limits','Valutazione del tutor necessaria; nessuna probabilità di origine AI o giudizio di colpevolezza.'))+'</p>')
         out.append('<h3>Riepilogo per fonte</h3><ul>')
         for source in ('OMV','Word','OMV–Word'):
             counts=Counter(f['status'] for f in r.get('findings',[]) if f.get('source')==source)
@@ -261,6 +290,8 @@ def render_report(reports, comparisons, metadata=None):
             out.append('<p>Nessuna evidenza rilevata dai confronti implementati. Questo esito non certifica autonomia o paternità.</p>')
         for c in relevant:
             out.append('<h4>'+e(c.get('kind','Confronto'))+' — '+e(c.get('labels',c.get('students',[])))+'</h4>')
+            if c.get('corroborates'):
+                out.append('<p>Elemento accessorio associato ai rilievi di contenuto: '+e(c['corroborates'])+'. Non costituisce da solo un’attribuzione di paternità.</p>')
             if c.get('evidence_count',0)>len(c.get('evidence',[])):
                 out.append('<p>Mostrate '+e(len(c.get('evidence',[])))+' di '+e(c['evidence_count'])+' evidenze rilevate per questa regola e coppia.</p>')
             for ev in c.get('evidence',[]):
@@ -273,6 +304,8 @@ def render_report(reports, comparisons, metadata=None):
                         out.append('<p>Token consecutivi coincidenti: '+e(ev['matching_tokens'])+'. Sequenza: '+e(ev.get('matching_text',''))+'</p>')
                     if 'token_sequence_ratio' in ev:
                         out.append('<p>Rapporto di sequenza dei token: '+e(ev['token_sequence_ratio'])+'; misura testuale, non probabilità di copiatura.</p>')
+                    extra={k:v for k,v in ev.items() if k not in {'component','left','right','location_left','location_right','document_frequency','class_size','matching_tokens','matching_text','frequency_basis','frequency_anchor','token_sequence_ratio'}}
+                    if extra:out.append('<p>Dettagli dell’evidenza: '+e(extra)+'</p>')
                 else:
                     out.append('<p>'+e(ev)+'</p>')
             out.append('<p><strong>Limiti:</strong> '+e(c.get('limits',''))+'</p>')

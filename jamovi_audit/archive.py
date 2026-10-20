@@ -25,7 +25,7 @@ def safe_zip(data: bytes, label: str = '') -> dict[str, bytes]:
             if len(infos) > MAX_FILES:
                 raise ValueError('ZIP: troppe componenti')
             for info in infos:
-                name = info.filename
+                name = info.orig_filename
                 stripped = name[:-1] if name.endswith('/') else name
                 parts = stripped.split('/')
                 if (not stripped or '\\' in name or '\x00' in name or

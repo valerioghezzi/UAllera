@@ -4,3 +4,8 @@ runtime/
 dist/
 .superpowers/
 *.log
+reference/
+*.omv
+*.docx
+*.sav
+Rapporto*.html

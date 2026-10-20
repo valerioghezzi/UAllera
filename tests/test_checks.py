@@ -162,6 +162,82 @@ class ChecksTests(unittest.TestCase):
         doc={'paragraphs':[{'index':4,'text':'Per ID 61789 il punteggio T = 62,37.'}]}
         self.assertEqual('Verificato',self.finding(self.check(data,doc),'WORD.NUM.T_ID_61789')['status'])
 
+    def test_actual_jmv_descriptives_dynamic_columns_are_recognized(self):
+        node={'kind':'table','name':'descriptives','path':['descriptives'],'columns':[
+            {'name':'stat[min]','cells':['Minimum']},{'name':'O[min]','title':'O','cells':[1.4]},
+            {'name':'stat[sww]','cells':['Shapiro-Wilk W']},{'name':'O[sww]','title':'O','cells':[.95]},
+            {'name':'stat[sw]','cells':['Shapiro-Wilk p']},{'name':'O[sw]','title':'O','cells':[.001]}]}
+        r=self.check(omv([desc([node])]))
+        for ident in ('P3.O.min','P3.O.sw','P3.O.swp'):
+            self.assertEqual('Verificato',self.finding(r,ident)['status'])
+        node['columns'][-1]['cells']=[]
+        self.assertEqual('Mancante',self.finding(self.check(omv([desc([node])])),'P3.O.swp')['status'])
+
+    def test_dynamic_descriptives_split_requires_both_groups_statistic(self):
+        node={'kind':'table','name':'descriptives','path':['descriptives'],'columns':[
+            {'name':'stat[meanmale]','cells':['Mean']},{'name':'var1[meanmale]','cells':['male']},{'name':'O[meanmale]','title':'O','cells':[4.]},
+            {'name':'stat[meanfemale]','cells':['Mean']},{'name':'var1[meanfemale]','cells':['female']},{'name':'O[meanfemale]','title':'O','cells':[5.]}]}
+        r=self.check(omv([desc([node],splitBy=['gender'])]))
+        self.assertEqual('Verificato',self.finding(r,'P3.O.gender.mean')['status'])
+        node['columns'][-1]['visible']=False
+        self.assertEqual('Mancante',self.finding(self.check(omv([desc([node],splitBy=['gender'])])),'P3.O.gender.mean')['status'])
+
+    def test_ttest_numeric_cells_must_belong_to_requested_variable_row(self):
+        node={'kind':'table','name':'ttest','path':['ttest'],'columns':[{'name':'name','cells':['A','N']},
+              {'name':'stat[stud]','cells':[2,None]},{'name':'df[stud]','cells':[30,None]},{'name':'p[stud]','cells':[.04,None]}]}
+        data=omv([{'name':'ttestIS','options':{'vars':['N','A'],'group':'gender'},'results':[node]}])
+        result=self.check(data)
+        self.assertEqual('Verificato',self.finding(result,'P5.A.student')['status'])
+        self.assertEqual('Mancante',self.finding(result,'P5.N.student')['status'])
+
+    def test_reliability_item_statistics_require_numeric_cell_for_each_item(self):
+        node={'kind':'table','name':'items','path':['items'],'columns':[{'name':'name','cells':['N1','N2','N3','N4','N5']},{'name':'itemRestCor','cells':[.4,.5,None,.3,.2]}]}
+        data=omv([{'name':'reliability','options':{'vars':['N1','N2','N3','N4','N5']},'results':[node]}])
+        self.assertEqual('Mancante',self.finding(self.check(data),'P7.N.items.itemRestCor')['status'])
+        node['columns'][1]['cells'][2]=.3
+        self.assertEqual('Verificato',self.finding(self.check(data),'P7.N.items.itemRestCor')['status'])
+
+    def test_matrix_labels_do_not_replace_actual_pairwise_numeric_cells(self):
+        names=['A','C','E','N','O','age']
+        cols=[{'name':'.name['+stat+']','cells':names} for stat in ('r','rp','rciu','rcil','n')]
+        node={'kind':'table','name':'matrix','path':['matrix'],'columns':cols}
+        data=omv([{'name':'corrMatrix','options':{'vars':names,'pearson':True},'results':[node]}])
+        self.assertEqual('Mancante',self.finding(self.check(data),'P6.pearson')['status'])
+        for channel in ('r','rp','rciu','rcil','n'):
+            for i,name in enumerate(names):
+                cols.append({'name':name+'['+channel+']','cells':[None if j<=i else 906 if channel=='n' else .2 for j in range(len(names))]})
+        self.assertEqual('Verificato',self.finding(self.check(data),'P6.pearson')['status'])
+        next(c for c in cols if c['name']=='A[r]')['cells'][1]=None
+        self.assertEqual('Mancante',self.finding(self.check(data),'P6.pearson')['status'])
+
+    def test_welch_condition_ignores_other_group_namespace_or_variables(self):
+        for change in ({'group':'education'},{'ns':'other'},{'vars':['A']}):
+            node={'kind':'table','name':'eqv','path':['eqv'],'columns':[{'name':'name','cells':['N']},{'name':'f','cells':[1.]},{'name':'p','cells':[.8]}]}
+            a={'name':'ttestIS','ns':change.get('ns','jmv'),'options':{'vars':change.get('vars',['N']),'group':change.get('group','gender')},'results':[node]}
+            self.assertEqual('Non verificabile',self.finding(self.check(omv([a])),'P5.N.welch')['status'])
+
+    def test_welch_condition_rejects_impossible_p_value(self):
+        for p in (-.3,1.2):
+            node={'kind':'table','name':'eqv','path':['eqv'],'columns':[{'name':'name','cells':['N']},{'name':'f','cells':[1.]},{'name':'p','cells':[p]}]}
+            a={'name':'ttestIS','options':{'vars':['N'],'group':'gender'},'results':[node]}
+            self.assertEqual('Non verificabile',self.finding(self.check(omv([a])),'P5.N.welch')['status'])
+
+    def test_T_claim_must_parse_whole_number_including_exponent_and_percent(self):
+        data=omv();data['columns']={'id':{'data':[61789.]},'Tscore_N':{'data':[62.368421]}}
+        for token in ('62,37e4','62,37%','62,370,000','62,37e'):
+            doc={'paragraphs':[{'index':1,'text':'ID 61789: T = '+token+'.'}]}
+            self.assertNotEqual('Verificato',self.finding(self.check(data,doc),'WORD.NUM.T_ID_61789')['status'],token)
+        doc={'paragraphs':[{'index':1,'text':'ID 61789: T = 6,237e1.'}]}
+        self.assertEqual('Verificato',self.finding(self.check(data,doc),'WORD.NUM.T_ID_61789')['status'])
+
+    def test_output_scores_allow_filtered_minor_missing_but_check_adults(self):
+        data=omv();data['columns']={n:{'meta':{},'data':v} for n,v in {'age':[17,20],'N1':[1,2],'N2':[2,3],'N3':[3,4],'N4':[4,5],'N5':[5,6],'N':[None,4]}.items()}
+        data['columns']['N']['meta']={'columnType':'Output'}
+        data['columns']['adult_filter']={'meta':{'columnType':'Filter','formula':'age >= 18','active':True},'data':[0,1]}
+        self.assertEqual('Verificato',self.finding(self.check(data),'P2.N.values')['status'])
+        data['columns']['N']['data'][1]=3
+        self.assertEqual('Errato',self.finding(self.check(data),'P2.N.values')['status'])
+
 
 if __name__ == '__main__':
     unittest.main()
