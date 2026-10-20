@@ -44,6 +44,22 @@ jobs:
         run: |
           python -m pip install playwright==1.56.0
           python tools/smoke_browser.py
+      - name: Carica motore Minerva nativo senza modello
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          from pathlib import Path
+          import platform, subprocess
+          from tools.prepare_minerva import RUNTIMES, _download, _extract_runtime
+          arch='ARM64' if platform.machine().lower() in ('arm64','aarch64') else 'x64'
+          root=Path('.minerva-native').resolve(); root.mkdir()
+          asset=RUNTIMES[arch]; archive=root/asset.name
+          _download(archive,asset,None)
+          folder=root/'engine'
+          _extract_runtime(root,folder,archive,arch)
+          result=subprocess.run([str(folder/'llama-server.exe'),'--version'],cwd=folder,capture_output=True,text=True,timeout=30)
+          print('Native Minerva engine:',arch,result.stdout,result.stderr)
+          assert result.returncode==0
       - name: Crea pacchetto Windows x64
         if: runner.os == 'Windows' && matrix.arch == 'x64'
         run: python tools/build_windows.py --arch x64

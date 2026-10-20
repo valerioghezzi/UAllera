@@ -1,30 +1,43 @@
 # UAllera
 
-Controllo locale di esercitazioni jamovi e relazioni Word contenute in uno ZIP con cartelle degli studenti. Un unico rapporto HTML riporta la situazione di ogni studente, con requisiti, evidenze, discrepanze e verifiche da approfondire.
+Controllo locale delle esercitazioni jamovi e delle relazioni Word, raccolte in uno ZIP con cartelle degli studenti. Produce un unico rapporto HTML con anomalie, evidenze e limiti, studente per studente.
 
-Il programma non invia i documenti a servizi esterni. L'interfaccia si apre nel browser del PC e comunica soltanto con il processo locale su 127.0.0.1. Il browser può essere utilizzato senza connessione Internet.
+## Avvio su Windows x64 e ARM64
 
-## Utilizzo
+1. Estrarre completamente il pacchetto della propria architettura.
+2. Aprire `Avvia_UAllera.cmd`: Python è già incluso; non occorrono installazioni di Python, R, Ollama o jamovi.
+3. Premere **Prepara e avvia Minerva**. La prima preparazione scarica il modello pubblico ufficiale, circa 4,48 GB, e il motore nativo. I file vengono verificati con dimensione e SHA-256 prefissati. Questo scaricamento non contiene documenti degli studenti.
+4. Le esecuzioni successive utilizzano i file locali verificati. Dopo la preparazione, l’analisi può svolgersi senza connessione Internet.
+5. Selezionare lo ZIP delle consegne, avviare il controllo e scaricare il rapporto unico.
+6. Premere **Termina programma** per chiudere anche il motore locale avviato dall’applicazione.
 
-1. Estrai completamente il pacchetto adatto al PC, Windows x64 oppure Windows ARM64.
-2. Apri `Avvia_UAllera.cmd`. Non occorre installare Python, R o jamovi.
-3. Seleziona lo ZIP delle cartelle degli studenti e premi **Avvia controllo**.
-4. Scarica `Rapporto_esercitazioni.html` e aprilo nel browser. Il rapporto è autonomo e stampabile.
-5. Premi **Termina programma** prima di chiudere la pagina.
+In alternativa, `Prepara_Minerva.cmd` prepara i file attraverso il runtime già incluso. Il limite dello ZIP delle consegne è 512 MiB. Gli ZIP annidati sono segnalati, senza espansione automatica. I documenti originali restano intatti.
 
-Il limite dello ZIP è 512 MiB. Le cartelle non vengono appiattite; file mancanti o versioni multiple rimangono visibili nel rapporto. Gli archivi ZIP di consegne annidati dentro lo ZIP principale sono segnalati e non espansi automaticamente.
+## Minerva e stato della versione
 
-## Controlli e limiti
+La versione di sviluppo `0.3.0-dev.1` integra **Minerva-7B-Instruct v1.0**, Sapienza/CINECA, nella conversione GGUF ufficiale Q4_K_M. Non è stato effettuato un addestramento aggiuntivo. Il modello interpreta le risposte; il tutor conferma ogni proposta.
 
-La presenza di un'analisi impostata non basta: il lettore cerca tabelle e immagini effettivamente salvate. I controlli numerici sono eseguiti dove il contenuto è interpretabile in modo univoco. Le interpretazioni aperte richiedono il tutor; la scheda mostra domanda, risposta e criterio di verifica.
+Il protocollo `minerva-evidence-1.0` legge i paragrafi del corpo e delle tabelle nell’ordine XML, comprese tabelle annidate e controlli di contenuto supportati. Non campiona i primi 128 paragrafi. Intestazioni, note, forme o altri contenuti non supportati compaiono fra le esclusioni del rapporto.
 
-Le somiglianze e l'identità dei file sono evidenze da contestualizzare. Il programma non determina l'autore, non ricostruisce la direzione degli scambi e non attribuisce percentuali di origine AI o colpevolezza.
+La finestra è limitata a 4096 token. Il programma controlla il template ufficiale, conta i token effettivi del prompt e invia gli stessi token all’inferenza, riservando spazio per la risposta. I passaggi troppo lunghi vengono suddivisi con posizioni dei caratteri conservate. I confini possono separare condizioni o negazioni: il tutor deve verificare i passaggi adiacenti.
 
-Formato OMV implementato: versione archivio 11.0. Per i formati non riconosciuti il rapporto dichiara il limite. La presenza degli output non ne certifica da sola l'aggiornamento: quando non si può accertarlo compare una verifica separata.
+Il modello restituisce identificativi dei passaggi. Citazioni e posizioni vengono ricavate dal Word originale dal programma. Una citazione riscontrata prova la presenza del testo, non la correttezza del giudizio. Le osservazioni discordanti restano visibili; nessun voto deriva da maggioranze o dall’assenza di rilievi. Le tabelle OMV sono contesto salvato, non risultati ricalcolati; se non entrano nella finestra, l’esclusione viene dichiarata.
 
-## Sviluppo e test
+**L’integrazione software e la qualità linguistica sono verifiche distinte.** I test del protocollo non dimostrano che Minerva comprenda correttamente le risposte. La prova reale comprende 70 casi sintetici invariati e due Word con conclusioni diverse sulla causalità. Consultare i rapporti effettivi del workflow Minerva; una configurazione di collaudo non equivale a un esito positivo.
 
-Python 3.13 o successivo, sola libreria standard. Nessun `pip install` per eseguire il programma o i test.
+L’annullamento conserva le osservazioni già ottenute in un rapporto incompleto, con numero di studenti e sezioni non esaminati. Una richiesta in corso resta soggetta al timeout locale.
+
+## Controlli dei file e integrità
+
+Il lettore OMV cerca output effettivamente salvati: la sola presenza di un’analisi impostata non basta. Il formato implementato è archivio jamovi 11.0; i formati non riconosciuti sono dichiarati non verificabili. La presenza degli output non certifica che siano aggiornati. I confronti numerici vengono eseguiti dove i dati sono interpretabili in modo univoco.
+
+I controlli incrociati comprendono somiglianze testuali, file OMV identici anche rinominati o ricompressi, metadati disponibili e coincidenze da approfondire. Dati e risultati prescritti comuni non bastano da soli a segnalare copiatura. Gli orari ZIP hanno precisione e fuso limitati; i metadati possono essere modificati. Il programma non determina autore, direzione degli scambi, intenzione, colpevolezza o percentuali di origine AI.
+
+Il report distingue controlli deterministici, proposte linguistiche, evidenze incrociate e requisiti non verificabili. La partecipazione all’esercitazione non è dimostrabile dai soli file.
+
+## Sviluppo e collaudi
+
+Il codice richiede solo la libreria standard di Python; i pacchetti Windows comprendono un runtime CPython ufficiale verificato. Per lo sviluppo:
 
 ```bash
 python -S -m unittest discover -s tests -v
@@ -32,45 +45,14 @@ python audit_cli.py consegne.zip -o Rapporto_esercitazioni.html
 python app.py
 ```
 
-Il workflow GitHub esegue i test su Linux, Windows x64 e Windows ARM64 e verifica l'architettura dell'interprete. Un workflow predisposto non equivale a un test passato: consultare gli esiti effettivi dei run.
-
-La repository pubblica contiene soltanto codice e casi artificiali. Le consegne reali, la soluzione completa e i riferimenti privati dell'attività rimangono sul PC. Una cartella `reference` locale può aggiungere i riferimenti numerici e i testi da escludere dai confronti.
-
-## Interpretazione linguistica locale
-
-La funzione facoltativa usa Ollama, LM Studio oppure llama.cpp già avviati sul PC. Nell'interfaccia scegli il motore, premi **Elenca modelli locali**, seleziona il modello e avvia il controllo. Sono ammessi solo indirizzi HTTP di loopback; il programma rifiuta proxy, redirect e modelli dichiarati cloud o remoti. Non richiede chiavi API né acquista crediti. Per garantire che anche il motore scelto resti sul PC, carica prima il modello e svolgi l'analisi senza connessione Internet.
-
-Le rubriche italiane distinguono risposte corrette, errori concettuali, parafrasi, negazioni, mancanze e istruzioni inserite nella relazione. Le proposte riportano citazioni riscontrate nel Word e restano separate dai controlli deterministici. Se il motore è spento, la valutazione linguistica risulta non disponibile e il rapporto dei file viene comunque prodotto.
-
-Non sono inclusi pesi addestrati o un rilevatore di testi AI. La preparazione linguistica consiste in rubriche, esempi e un corpus di calibrazione; la qualità va misurata sul modello concretamente installato. I test del protocollo non misurano l'accuratezza del modello.
-
-Documentazione dei protocolli: [Ollama](https://docs.ollama.com/api/chat), [LM Studio](https://lmstudio.ai/docs/developer/openai-compat/chat-completions), [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
-
-Esempio CLI:
+Il workflow generale esegue i test su Linux, Windows x64 e Windows ARM64, verifica il runtime portatile e il caricamento del motore nativo. Il test di sviluppo Minerva, su Linux x64, scarica soltanto risorse pubbliche e impiega documenti artificiali:
 
 ```bash
-python audit_cli.py consegne.zip --local-engine ollama --model nome-modello-locale -o Rapporto_esercitazioni.html
+python tools/ci_minerva.py --output minerva_artifacts
 ```
 
+Le risposte effettive, i tempi, gli hash, la copertura, gli errori e le proposte sono conservati negli artefatti. Le soglie del test sono criteri tecnici prestabiliti su casi sintetici redatti dall’assistente, da approvare con il docente; non costituiscono una validazione esterna né una misura della sensibilità alle frodi.
 
-## Verifica del modello su casi separati
+La [precedente prova Qwen](https://github.com/valerioghezzi/UAllera/actions/runs/39466687033) ha ottenuto 15 etichette concordanti su 70 tentativi e non giustificava valutazioni linguistiche affidabili. I risultati restano separati dal nuovo esperimento Minerva. Ollama, LM Studio e llama.cpp esterni rimangono disponibili fra i motori avanzati; il client ammette soltanto indirizzi HTTP di loopback e non può verificare internamente un servizio esterno configurato dal tutor.
 
-Il pulsante **Verifica modello su 70 casi nuovi** avvia una prova locale senza caricare consegne studente. I testi sono separati dalle35 dimostrazioni del prompt. Il rapporto include copertura degli esiti citabili, concordanza con le etichette attese, errori concettuali riconosciuti, falsi allarmi e rassicurazioni erronee. Le risposte non valutabili e le interruzioni restano visibili; un motore assente interrompe la prova dopo il primo tentativo.
-
-I casi e le etichette sono sintetici e redatti dall'assistente: richiedono approvazione del docente. La separazione dei testi evita il riuso esatto degli esempi, ma non rende la prova una validazione esterna indipendente. Non misura la capacità di scoprire frodi.
-
-Da terminale:
-
-```bash
-python tools/validate_local.py --provider ollama --model nome-modello --output Validazione_modello.html
-```
-
-Vengono salvati un HTML autonomo e il corrispondente JSON. Il precedente comando `tools/calibrate_local.py` conserva i35 esempi già visibili nel prompt per verificare l'aderenza alle dimostrazioni.
-
-La verifica dei 70 casi valuta una domanda alla volta, con i criteri e le cinque dimostrazioni della parte pertinente. La domanda è un'istruzione del tutor separata dal testo da esaminare; la risposta è limitata a un solo giudizio citabile. Il profilo `single-question-1.1` compare nel rapporto. La revisione di una relazione completa mantiene i criteri delle sette parti e le 35 dimostrazioni: la concordanza sulle domande isolate non misura automaticamente quella sulle relazioni complete.
-
-La prova di sviluppo `python tools/ci_real_model.py` scarica un modello e un runtime CPU pubblici con SHA-256 prefissati, esamina i 70 casi e due relazioni sintetiche attraverso la pipeline completa. È riservata a Linux x64 e richiede Internet solo per scaricare questi asset pubblici. L'applicazione offline non richiama questo comando e non scarica modelli. I file degli studenti e i riferimenti privati della consegna restano esclusi dal test su GitHub.
-
-La sintesi delle relazioni complete è limitata a sette osservazioni, al massimo una per parte, con campi brevi e 2048 token di risposta (`documento-seven-1.2`). Riporta prima un errore esplicito o una mancanza; non è un elenco esaustivo. La prova `--pipeline-only` ripete soltanto i due Word e conserva separatamente la precedente baseline sui 70 casi. Questa modifica limita il costo del protocollo: non dimostra una migliore comprensione linguistica.
-
-La [prima prova reale CPU](https://github.com/valerioghezzi/UAllera/actions/runs/39466687033) di Qwen2.5-1.5B-Instruct Q4_K_M ha completato i 70 casi sintetici: 51 esiti citabili, soltanto 15 concordanti con le etichette attese (21,4% dei tentativi), 4 errori concettuali riconosciuti su 28 e 14 proposte coerenti quando l'atteso era diverso. Entrambe le relazioni complete del precedente profilo sono terminate senza esiti utilizzabili. Questi risultati non giustificano l'impiego del modello per giudizi linguistici affidabili. Il completamento tecnico di una richiesta non equivale alla correttezza del giudizio; il test dei due Word richiede anche di distinguere correttamente le loro affermazioni sulla causalità.
+La repository pubblica contiene soltanto codice e casi sintetici. I riferimenti privati dell’attività e le consegne reali restano esclusi. Una cartella `reference` locale può aggiungere riferimenti numerici e testi comuni da escludere dai confronti.

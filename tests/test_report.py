@@ -156,6 +156,38 @@ class ReportTests(unittest.TestCase):
         self.assertIn('&lt;b&gt;Conclusione',html)
         self.assertIn('Proposta del modello',html)
 
+    def test_minerva_report_exposes_coverage_omissions_conflicts_and_provenance(self):
+        r=report('x')
+        r['linguistic']={'status':'partial','findings':[],'limits':[],
+                        'coverage':{'planned_chunks':4,'attempted_chunks':3,'successful_chunks':2,
+                                    'failed_chunks':1,'source_characters':9000,'reviewed_characters':4200},
+                        'manifest':{'source_document_sha256':'docx-digest',
+                                    'extracted_text_sha256':'text-digest',
+                                    'extraction':{'scope':'body_paragraphs_and_table_paragraphs_in_document_order',
+                                                  'omissions':[{'kind':'drawing','part':'word/document.xml',
+                                                                'location':'body/2','reason':'Casella <script>non esaminata</script>'}]}},
+                        'conflicting_parts':[6],
+                        'protocol':{'expected_model_sha256':'expected-digest',
+                                    'runtime_reported':'runtime-reported','runtime_verified':False}}
+        html=render_report([r],[])
+        for text in ('Copertura linguistica','4','3','2','1','9000','4200',
+                     'Ambito del testo estratto','drawing','word/document.xml','body/2',
+                     'Casella &lt;script&gt;non esaminata&lt;/script&gt;',
+                     'Parti con proposte discordanti','6','Provenienza del protocollo',
+                     'expected-digest','runtime-reported','docx-digest','text-digest'):
+            self.assertIn(text,html)
+        self.assertNotIn('<script>',html)
+
+    def test_incomplete_report_announces_unexecuted_students_and_skipped_comparisons(self):
+        html=render_report([report('x')],[],{'status':'cancelled','incomplete':True,
+                           'student_count':1,'planned_student_count':3,'unexecuted_student_count':2,
+                           'comparison_status':'not_run_cancelled'})
+        self.assertIn('Rapporto incompleto',html)
+        self.assertIn('1 di 3',html)
+        self.assertIn('2 non esaminati',html)
+        self.assertIn('Confronti tra studenti non eseguiti',html)
+        self.assertNotIn('Nessuna evidenza rilevata dai confronti implementati',html)
+
     def test_temporal_corroboration_renders_gap_and_basis_without_authorship_claim(self):
         comp={'students':['x','y'],'labels':['X','Y'],'kind':'metadati_temporali','corroborates':['testo_parziale'],
               'evidence':[{'left':'2026-01-01','right':'2026-01-01','location_left':'Word/core','location_right':'Word/core','gap_seconds':30,'comparison_basis':'orari Word con fuso noto','precision_seconds':1}], 'limits':'Orari modificabili, nessuna attribuzione di paternità.'}

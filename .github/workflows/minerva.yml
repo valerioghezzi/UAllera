@@ -1,0 +1,28 @@
+name: Minerva locale - prova reale
+on:
+  push:
+    branches: [feature/minerva-locale]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  minerva-real:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Test software
+        run: python -S -m unittest discover -s tests -v
+      - name: Minerva ufficiale - 70 casi e due Word
+        timeout-minutes: 80
+        run: python -u tools/ci_minerva.py --output minerva_artifacts
+      - name: Rapporti e risposte effettive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minerva-prova-reale
+          path: minerva_artifacts/
+          retention-days: 3

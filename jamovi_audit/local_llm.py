@@ -145,8 +145,8 @@ _SCHEMA = {'type': 'object', 'properties': {'findings': {'type': 'array', 'items
 def validate_config(config=None):
     """Normalize configuration, refusing network destinations and cloud models.
 
-    Unknown optional keys are ignored. No authentication tokens are accepted or
-    forwarded. localhost is rewritten to 127.0.0.1 before opening the connection.
+    Unknown optional keys are ignored. External authentication tokens are never
+    accepted. A server-owned Minerva instance retains its internal loopback capability. localhost is rewritten to 127.0.0.1 before opening the connection.
     """
     if config is not None and not isinstance(config, dict):
         raise ValueError('Configurazione del motore locale non valida.')
@@ -182,8 +182,16 @@ def validate_config(config=None):
     if not math.isfinite(timeout) or not 1 <= timeout <= 900 or not 4000 <= max_input <= 120000:
         raise ValueError('Timeout ammesso 1–900 secondi; contesto 4000–120000 caratteri.')
     displayhost = '[' + host + ']' if ':' in host else host
-    return dict(enabled=enabled, provider=provider, endpoint=f'http://{displayhost}:{port}', host=host,
+    normalized = dict(enabled=enabled, provider=provider, endpoint=f'http://{displayhost}:{port}', host=host,
                 port=port, model=model.strip(), timeout=timeout, max_input_chars=max_input)
+    managed = source.get('_managed_minerva')
+    if managed is not None:
+        from tools.prepare_minerva import LocalServer, MODEL_ALIAS
+        if (not isinstance(managed, LocalServer) or provider != 'llamacpp' or
+                normalized['endpoint'] != managed.base_url or normalized['model'] != MODEL_ALIAS):
+            raise ValueError('Istanza Minerva gestita non valida.')
+        normalized['_managed_minerva'] = managed
+    return normalized
 
 
 def _request(config, method, path, payload=None, cancelled=None):
@@ -194,7 +202,13 @@ def _request(config, method, path, payload=None, cancelled=None):
     connection = http.client.HTTPConnection(config['host'], config['port'], timeout=config['timeout'])
     try:
         body = json.dumps(payload, ensure_ascii=False).encode('utf-8') if payload is not None else None
-        connection.request(method, path, body, {'Content-Type': 'application/json', 'Accept': 'application/json'})
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        managed = config.get('_managed_minerva')
+        if managed is not None:
+            if managed.process.poll() is not None:
+                raise LocalEngineError('Minerva locale è terminato; riavviare il motore.')
+            headers['Authorization'] = 'Bearer ' + managed.api_key
+        connection.request(method, path, body, headers)
         response = connection.getresponse()
         if response.status != 200:
             raise LocalEngineError(f'Motore locale: HTTP {response.status}; redirect e fallback non consentiti.')
@@ -467,7 +481,7 @@ def _proposals(value, citations):
     return sorted(findings, key=lambda row: (row['part'], row['id']))
 
 
-def assess_relation(docx, report, reference=None, config=None, cancelled=None, *, target_part=None, criterion=None):
+def assess_relation(docx, report, reference=None, config=None, cancelled=None, *, target_part=None, criterion=None, progress=None):
     """Return tutor-review proposals without modifying deterministic findings.
 
     Cancellation is checked between requests and after the bounded read. An
@@ -479,6 +493,9 @@ def assess_relation(docx, report, reference=None, config=None, cancelled=None, *
         raise ValueError('Parte da valutare non valida.')
     if criterion is not None and (target_part is None or not isinstance(criterion, str) or not criterion.strip() or len(criterion) > 2000):
         raise ValueError('Quesito da valutare non valido.')
+    if normalized['enabled'] and normalized['provider'] == 'llamacpp' and normalized['model'] == 'minerva-7b-instruct-q4-local':
+        from .minerva_review import review
+        return review(docx, report, reference, normalized, cancelled, target_part=target_part, criterion=criterion, progress=progress)
     result = dict(status='disabled', rubric_version=RUBRIC_VERSION, provider=normalized['provider'], model=normalized['model'], findings=[], limits=[])
     if not normalized['enabled']:
         return result

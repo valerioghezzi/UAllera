@@ -237,8 +237,98 @@ def _props(node):
     return out
 
 
+def _docx_evidence(body, parts):
+    """Saved body paragraph text in XML order, independent of legacy summaries.
+
+    IDs address zero-based XML element child paths within this document; callers
+    must also bind them to the document hash. Drawing/textbox content is omitted,
+    never folded into its surrounding paragraph. No normalization or sampling is
+    applied. The manifest does not claim coverage of Word's rendered pages.
+    """
+    sources, omissions, counts = [], [], {}
+    part = 'word/document.xml'
+    def omit(kind, location, reason, source_part=part):
+        omissions.append(dict(kind=kind, part=source_part, location=location, reason=reason))
+    nonbody = {}
+    if '[Content_Types].xml' in parts:
+        for declaration in _xml(parts['[Content_Types].xml']):
+            match = re.fullmatch(r'application/vnd\.openxmlformats-officedocument\.wordprocessingml\.(header|footer|footnotes|endnotes|comments)\+xml',
+                                 declaration.get('ContentType', ''))
+            name = declaration.get('PartName', '').lstrip('/')
+            if match and name in parts:
+                nonbody[name] = match.group(1)
+    for name in sorted(parts):
+        match = re.fullmatch(r'word/(header[^/]*|footer[^/]*|footnotes|endnotes|comments)\.xml', name)
+        if match:
+            value = match.group(1)
+            nonbody.setdefault(name, 'header' if value.startswith('header') else
+                               'footer' if value.startswith('footer') else value)
+    for name, kind in sorted(nonbody.items()):
+        omit(kind, name, 'Parte esterna al corpo Word: testo non esaminato.', name)
+    def number(context, kind):
+        key = (context, kind)
+        counts[key] = counts.get(key, 0) + 1
+        return counts[key]
+    excluded = {'drawing', 'pict', 'object', 'txbxContent', 'altChunk', 'subDoc', 'del', 'moveFrom'}
+    inline = {'r', 'hyperlink', 'sdt', 'sdtContent', 'customXml', 'smartTag',
+              'ins', 'moveTo', 'dir', 'bdo', 'fldSimple'}
+    markers = {'pPr', 'rPr', 'sdtPr', 'customXmlPr', 'smartTagPr', 'bookmarkStart',
+               'bookmarkEnd', 'proofErr', 'permStart', 'permEnd', 'commentRangeStart',
+               'commentRangeEnd', 'lastRenderedPageBreak', 'fldChar'}
+    def paragraph_text(node, path):
+        text, pending = [], [(node, path)]
+        while pending:
+            current, current_path = pending.pop()
+            local = current.tag.removeprefix(W)
+            if current is node or local in inline:
+                pending.extend((child, current_path + '/' + str(i))
+                               for i, child in reversed(list(enumerate(current))))
+            elif local == 't':
+                text.append(current.text or '')
+            elif local == 'tab':
+                text.append('\t')
+            elif local in ('br', 'cr'):
+                text.append('\n')
+            elif local not in markers:
+                omit(local.rsplit('}', 1)[-1], current_path,
+                     'Contenuto non supportato escluso dal testo citabile del paragrafo.')
+        return ''.join(text)
+    structural = {'sdt', 'sdtContent', 'customXml'}
+    properties = markers | {'sectPr', 'tblPr', 'tblGrid', 'trPr', 'tcPr'}
+    pending = [(child, 'word/document.xml#body/' + str(i), '')
+               for i, child in reversed(list(enumerate(body)))]
+    while pending:
+        node, path, context = pending.pop()
+        local = node.tag.removeprefix(W)
+        if local == 'p':
+            index = number(context, 'p')
+            location = (context + f', paragrafo {index}') if context else f'Paragrafo {index}'
+            sources.append(dict(id=path, text=paragraph_text(node, path),
+                                location=location, kind='paragraph'))
+            continue
+        if local in excluded:
+            omit(local, path, 'Contenuto non supportato escluso dal corpo citabile.')
+            continue
+        if local == 'tbl':
+            index = number(context, 'tbl')
+            context = (context + f', tabella annidata {index}') if context else f'Tabella {index}'
+        elif local == 'tr':
+            context += f', riga {number(context, "tr")}'
+        elif local == 'tc':
+            context += f', cella {number(context, "tc")}'
+        elif local in properties:
+            continue
+        elif local not in structural:
+            omit(local.rsplit('}', 1)[-1], path, 'Elemento del corpo Word non supportato: testo non esaminato.')
+            continue
+        pending.extend((child, path + '/' + str(i), context)
+                       for i, child in reversed(list(enumerate(node))))
+    return sources, dict(scope='body_paragraphs_and_table_paragraphs_in_document_order', omissions=omissions)
+
+
 def read_docx(data: bytes) -> dict:
-    result={'paragraphs':[],'tables':[],'text':'','formatting':{},'metadata':{},'errors':[],'sha256':hashlib.sha256(data).hexdigest()}
+    result={'paragraphs':[],'tables':[],'text':'','formatting':{},'metadata':{},'errors':[],'sha256':hashlib.sha256(data).hexdigest(),
+            'evidence_sources':[], 'evidence_coverage':{'scope':'unavailable','omissions':[]}}
     try:
         es=safe_zip(data,'DOCX');root=_xml(es['word/document.xml']);styles={};defaults={};default_style=None
         if 'word/styles.xml' in es:
@@ -256,6 +346,7 @@ def read_docx(data: bytes) -> dict:
             return fmt,resolved
         body=root.find(W+'body')
         if body is None:raise ValueError('Corpo Word assente')
+        result['evidence_sources'],result['evidence_coverage']=_docx_evidence(body,es)
         chunks=[];runs=[]
         def paragraph(p,index,location):
             pp=p.find(W+'pPr');ps=pp.find(W+'pStyle') if pp is not None else None
@@ -291,5 +382,8 @@ def read_docx(data: bytes) -> dict:
         result['formatting']={'issues':issues,'unknown':unknown,'runs_checked':len(runs),'complete':bool(runs) and not unknown,'fonts':sorted({r['font'] for r in runs if 'font' in r}),'sizes':sorted({r['size'] for r in runs if 'size' in r})}
         if 'docProps/core.xml' in es:
             result['metadata']={e.tag.rsplit('}',1)[-1]:e.text or '' for e in _xml(es['docProps/core.xml'])}
-    except (ValueError,KeyError,TypeError,UnicodeError,ET.ParseError,AttributeError) as e:result['errors'].append('DOCX non leggibile: '+str(e))
+    except (ValueError,KeyError,TypeError,UnicodeError,ET.ParseError,AttributeError) as e:
+        result['errors'].append('DOCX non leggibile: '+str(e))
+        result['evidence_sources']=[]
+        result['evidence_coverage']={'scope':'unavailable','omissions':[]}
     return result

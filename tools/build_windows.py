@@ -54,6 +54,11 @@ def build(arch, runtime_data, destination):
         p.write_text('python314.zip\n.\n..\n', encoding='utf-8')
     (folder / 'Avvia_UAllera.cmd').write_bytes(
         b'@echo off\r\ncd /d "%~dp0"\r\n"%~dp0runtime\\python.exe" "%~dp0app.py"\r\nif errorlevel 1 pause\r\n')
+    (folder / 'minerva_config.json').write_text(json.dumps({'architecture': arch, 'engine': 'Minerva Sapienza',
+        'model': 'minerva-7b-instruct-v1.0-q4_k_m.gguf', 'setup_download_bytes': 4478676576}, indent=2), encoding='utf-8')
+    (folder / 'Prepara_Minerva.cmd').write_bytes((
+        '@echo off\r\ncd /d "%~dp0"\r\n"%~dp0runtime\\python.exe" "%~dp0tools\\prepare_minerva.py" '
+        '--destination "%~dp0minerva" --arch ' + arch + '\r\nif errorlevel 1 pause\r\n').encode('utf-8'))
     (folder / 'Collaudo_locale.cmd').write_bytes(
         b'@echo off\r\ncd /d "%~dp0"\r\n"%~dp0runtime\\python.exe" -S -m unittest discover -s tests -v\r\npause\r\n')
     (folder / 'runtime_verificato.json').write_text(json.dumps({

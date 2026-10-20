@@ -51,7 +51,7 @@ def run_validation(config, cases=None, progress=None, cancelled=None):
     start = time.monotonic()
     result = dict(status='complete', provider=normalized['provider'], model=normalized['model'],
                   endpoint=normalized['endpoint'], timeout=normalized['timeout'], rubric_version=RUBRIC_VERSION, corpus_version=VALIDATION_VERSION,
-                  evaluation_profile='single-question-1.1',
+                  evaluation_profile=('minerva-single-question-evidence-1.0' if normalized['provider']=='llamacpp' and normalized['model']=='minerva-7b-instruct-q4-local' else 'single-question-1.1'),
                   corpus_sha256=hashlib.sha256(corpus_json.encode()).hexdigest(),
                   started_utc=datetime.now(timezone.utc).isoformat(), planned=len(selected), cases=[], limits=list(LIMITS))
     for case in selected:
@@ -73,7 +73,7 @@ def run_validation(config, cases=None, progress=None, cancelled=None):
         observed = next(iter(predictions)) if all_citable and len(predictions) == 1 and review['status'] == 'complete' else None
         result['cases'].append(dict(case, observed=observed, engine_status=review['status'],
                                     matches_expected=observed == case['expected_assessment'],
-                                    seconds=round(time.monotonic()-before, 3), findings=findings, limits=review.get('limits', [])))
+                                    seconds=round(time.monotonic()-before, 3), findings=findings, limits=review.get('limits', []), protocol=review.get('protocol'), coverage=review.get('coverage')))
         if review['status'] in ('unavailable', 'cancelled'):
             result['status'] = review['status']
             break

@@ -228,8 +228,14 @@ def render_report(reports, comparisons, metadata=None):
          '<h1>Rapporto delle esercitazioni jamovi</h1>',
          '<p>Supporto alla revisione del tutor. Completezza, correttezza ed evidenze da approfondire restano distinte. Nessuna bocciatura automatica, percentuale di origine AI o certificazione di lavoro umano. La partecipazione alle attività non è deducibile dai file.</p>',
          '<p>Confronti OMV: identità del file completo e, quando disponibile, identità di tutte le componenti interne dopo decompressione. Annotazioni personali non esposte dal lettore non vengono confrontate separatamente. La coincidenza dei soli dati, valori, formule e ordine prescritti non viene segnalata come anomalia.</p>',
-         '<p>Metadati della scansione: '+e(metadata)+'</p>', '<h2>Riepilogo e indice</h2>',
-         '<table><thead><tr><th>Studente</th><th>Identificativo locale</th><th>Completezza</th><th>Correttezza</th><th>Da approfondire</th><th>Copertura</th></tr></thead><tbody>']
+         '<p>Metadati della scansione: '+e(metadata)+'</p>', '<h2>Riepilogo e indice</h2>']
+    comparisons_skipped = metadata.get('comparison_status') == 'not_run_cancelled'
+    if metadata.get('incomplete'):
+        out.append('<p><strong>Rapporto incompleto: controllo annullato.</strong> Sono conservati i risultati disponibili per '
+                   +e(metadata.get('student_count',len(reports)))+' di '+e(metadata.get('planned_student_count','?'))
+                   +' studenti; '+e(metadata.get('unexecuted_student_count','?'))
+                   +' non esaminati. Anche l’ultimo studente può avere una copertura linguistica parziale: consultare le sezioni completate.</p>')
+    out.append('<table><thead><tr><th>Studente</th><th>Identificativo locale</th><th>Completezza</th><th>Correttezza</th><th>Da approfondire</th><th>Copertura</th></tr></thead><tbody>')
     for i,r in enumerate(reports,1):
         counts=Counter(f.get('status') for f in r.get('findings',[]))
         out.append(f'<tr><td><a href="#student-{i}">{e(r.get("label"))}</a></td><td>{e(r.get("key"))}</td><td>{counts["Mancante"]} mancanti</td><td>{counts["Errato"]} errori; {counts["Verificato"]} requisiti verificati</td><td>{counts["Da verificare"]} da verificare; {counts["Non verificabile"]} non verificabili</td><td>{len(r.get("findings",[]))} controlli; nessun voto automatico</td></tr>')
@@ -237,6 +243,8 @@ def render_report(reports, comparisons, metadata=None):
     diagnostics=getattr(comparisons,'diagnostics',{})
     rule_pairs={kind:len({tuple(c.get('students',[])) for c in comparisons if c.get('kind')==kind}) for kind in sorted({c.get('kind','') for c in comparisons})}
     out.append('<h2>Copertura dei confronti</h2><p>Coppie segnalate per regola (una coppia può comparire in più regole): '+e(rule_pairs)+'</p>')
+    if comparisons_skipped:
+        out.append('<p><strong>Confronti tra studenti non eseguiti per annullamento.</strong> Nessuna conclusione può essere tratta dall’assenza di confronti in questo rapporto.</p>')
     out.append('<p>Ricerca dei candidati e limiti effettivi: '+e(diagnostics or 'Diagnostica dei candidati non disponibile in questo rapporto ricostruito.')+'</p>')
     out.append('<p>La ricerca usa sequenze letterali di almeno 8 token e almeno 3 parole lessicali; i passaggi con modifiche richiedono almeno 20 token, quattro parole lessicali condivise e un rapporto di sequenza di almeno 0,72. Parole tecniche inevitabili, numeri e formule non bastano da soli. Un esito senza rilievi non certifica autonomia; parafrasi, testo molto breve e candidati omessi dai limiti dichiarati possono sfuggire. La frequenza nella classe resta visibile anche per coincidenze diffuse.</p>')
     for i,r in enumerate(reports,1):
@@ -259,6 +267,40 @@ def render_report(reports, comparisons, metadata=None):
         linguistic=r.get('linguistic')
         if isinstance(linguistic,dict):
             out.append('<h3>Analisi linguistica — proposte per il tutor</h3><p>Stato: '+e(linguistic.get('status','non disponibile'))+'; provider: '+e(linguistic.get('provider','sconosciuto'))+'; modello: '+e(linguistic.get('model','sconosciuto'))+'; rubrica: '+e(linguistic.get('rubric_version','non specificata'))+'. Ogni rilievo di questa sezione è una proposta da valutare e non modifica automaticamente gli esiti dei controlli deterministici.</p>')
+            coverage=linguistic.get('coverage')
+            if isinstance(coverage,dict) and coverage:
+                out.append('<h4>Copertura linguistica</h4><p>Il completamento delle richieste riguarda solo il testo estratto nell’ambito dichiarato; non certifica la completezza o correttezza della relazione.</p><table><thead><tr><th>Misura</th><th>Valore</th></tr></thead><tbody>')
+                for key,label in [('planned_chunks','Sezioni previste'),('attempted_chunks','Richieste tentate'),
+                                  ('successful_chunks','Sezioni completate'),('failed_chunks','Sezioni non utilizzabili'),
+                                  ('cancelled_chunks','Sezioni annullate'),('source_characters','Caratteri estratti'),
+                                  ('reviewed_characters','Caratteri esaminati')]:
+                    out.append('<tr><td>'+label+'</td><td>'+e(coverage.get(key,'non disponibile'))+'</td></tr>')
+                out.append('</tbody></table>')
+            manifest=linguistic.get('manifest')
+            if isinstance(manifest,dict):
+                extraction=manifest.get('extraction')
+                if isinstance(extraction,dict):
+                    out.append('<h4>Ambito del testo estratto</h4><p>'+e(extraction.get('scope','non disponibile'))+'</p>')
+                    omissions=extraction.get('omissions',[])
+                    if omissions:
+                        out.append('<p>Contenuti esclusi dalla revisione linguistica:</p><table><thead><tr><th>Contenuto</th><th>Parte e posizione</th><th>Motivo</th></tr></thead><tbody>')
+                        for omission in omissions:
+                            if isinstance(omission,dict):
+                                out.append('<tr><td>'+e(omission.get('kind','non specificato'))+'</td><td>'+e(omission.get('part',''))+' '+e(omission.get('location',''))+'</td><td>'+e(omission.get('reason','non specificato'))+'</td></tr>')
+                            else:
+                                out.append('<tr><td colspan="3">'+e(omission)+'</td></tr>')
+                        out.append('</tbody></table>')
+                    else:
+                        out.append('<p>Nessuna omissione dichiarata nell’ambito del testo estratto; le altre parti del documento restano fuori da questo ambito.</p>')
+                identity={key:value for key,value in manifest.items() if key not in ('spans','extraction')}
+                if identity:
+                    out.append('<p>Identificazione delle sorgenti: '+e(identity)+'</p>')
+            if linguistic.get('conflicting_parts'):
+                out.append('<p><strong>Parti con proposte discordanti:</strong> '+e(linguistic['conflicting_parts'])+'. Il tutor deve confrontare le evidenze originali; non viene attribuito un giudizio globale.</p>')
+            if linguistic.get('protocol'):
+                out.append('<details><summary>Provenienza del protocollo</summary><p>I valori attesi identificano gli asset previsti; solo i campi indicati come verificati attestano controlli eseguiti dal programma. I metadati riportati da un motore esterno non provano quali pesi siano caricati.</p><pre>'+e(linguistic['protocol'])+'</pre></details>')
+            if linguistic.get('chunks'):
+                out.append('<details><summary>Esito delle sezioni linguistiche</summary><pre>'+e(linguistic['chunks'])+'</pre></details>')
             proposals=linguistic.get('findings',[])
             if proposals:
                 out.append('<table><thead><tr><th>Proposta del modello</th><th>Evidenze e posizione</th></tr></thead><tbody>')
@@ -287,7 +329,10 @@ def render_report(reports, comparisons, metadata=None):
         relevant=[c for c in comparisons if r.get('key') in c.get('students',[])]
         out.append('<h3>Evidenze da approfondire con altre consegne</h3>')
         if not relevant:
-            out.append('<p>Nessuna evidenza rilevata dai confronti implementati. Questo esito non certifica autonomia o paternità.</p>')
+            if comparisons_skipped:
+                out.append('<p>Confronti tra studenti non eseguiti per annullamento.</p>')
+            else:
+                out.append('<p>Nessuna evidenza rilevata dai confronti implementati. Questo esito non certifica autonomia o paternità.</p>')
         for c in relevant:
             out.append('<h4>'+e(c.get('kind','Confronto'))+' — '+e(c.get('labels',c.get('students',[])))+'</h4>')
             if c.get('corroborates'):
