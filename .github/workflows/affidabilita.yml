@@ -2,7 +2,7 @@ name: Affidabilita - test sintetici senza modelli
 
 on:
   push:
-    branches-ignore: [feature/minerva-runtime]
+    branches-ignore: [feature/minerva-runtime, feature/minerva-calibrazione]
   pull_request:
   workflow_dispatch:
 

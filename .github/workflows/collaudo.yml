@@ -2,7 +2,7 @@ name: Collaudo UAllera
 
 on:
   push:
-    branches-ignore: [feature/minerva-runtime]
+    branches-ignore: [feature/minerva-runtime, feature/minerva-calibrazione]
   pull_request:
   workflow_dispatch:
 
@@ -71,6 +71,7 @@ jobs:
           _download(archive,asset,None)
           folder=root/'engine'
           _extract_runtime(root,folder,archive,arch)
+          subprocess.run([sys.executable,'tools/inspect_native_imports.py','--directory',str(folder),'--architecture',arch,'--require-static-runtime','--output',str(root/'Imports.json')],check=True,timeout=30)
           result=subprocess.run([str(folder/'llama-server.exe'),'--version'],cwd=folder,capture_output=True,text=True,timeout=30)
           print('Native Minerva engine:',arch,result.stdout,result.stderr)
           assert result.returncode==0

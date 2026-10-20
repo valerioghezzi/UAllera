@@ -1,0 +1,34 @@
+name: Minerva - prova limitata di calibrazione
+
+on:
+  push:
+    branches: [feature/minerva-calibrazione]
+    paths:
+      - tools/probe_minerva_calibration.py
+      - .github/workflows/minerva-calibrazione.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  calibration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Verifica contratti della prova sperimentale
+        run: python -S -m unittest discover -s tests -p test_minerva_calibration_probe.py -v
+      - name: Otto nuovi casi con esempi del revisore
+        timeout-minutes: 25
+        run: python tools/probe_minerva_calibration.py --output calibration_artifacts
+      - name: Conserva anche esiti negativi e risposte effettive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minerva-calibrazione-otto-casi
+          path: calibration_artifacts/
+          retention-days: 7
