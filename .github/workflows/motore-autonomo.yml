@@ -6,6 +6,10 @@ on:
     paths:
       - .github/workflows/motore-autonomo.yml
       - tools/inspect_native_imports.py
+      - tools/configure_native_engine.py
+      - tests/test_native_configure.py
+      - tools/prepare_minerva.py
+      - tests/test_minerva_setup.py
   workflow_dispatch:
 
 permissions:
@@ -20,9 +24,6 @@ jobs:
           - os: windows-latest
             architecture: x64
             cmake_architecture: x64
-          - os: windows-11-arm
-            architecture: ARM64
-            cmake_architecture: ARM64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -37,15 +38,9 @@ jobs:
           python-version: '3.14'
           architecture: ${{ matrix.architecture == 'ARM64' && 'arm64' || 'x64' }}
       - name: Verifica controllo delle dipendenze
-        run: python -S -m unittest discover -s tests -p test_native_imports.py -v
-      - name: Configura librerie integrate senza OpenMP o HTTPS
-        shell: pwsh
-        run: |
-          $native = if ('${{ matrix.architecture }}' -eq 'ARM64') { 'ON' } else { 'OFF' }
-          $baseline = @()
-          if ('${{ matrix.architecture }}' -eq 'ARM64') { $baseline = @('-DGGML_MACHINE_SUPPORTS_dotprod:BOOL=FALSE','-DGGML_MACHINE_SUPPORTS_i8mm:BOOL=FALSE','-DGGML_MACHINE_SUPPORTS_sve:BOOL=FALSE','-DGGML_MACHINE_SUPPORTS_sme:BOOL=FALSE') }
-          cmake -S native-source -B native-build -A ${{ matrix.cmake_architecture }} -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DBUILD_SHARED_LIBS=OFF -DGGML_BACKEND_DL=OFF -DGGML_NATIVE=$native @baseline -DGGML_OPENMP=OFF -DGGML_OPENMP_FETCH=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_NUMBER=11756 -DLLAMA_BUILD_COMMIT=d80619397 -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_CONNECT=OFF
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: python -S -m unittest discover -s tests -p test_native*.py -v
+      - name: Configura e verifica il profilo CPU effettivo
+        run: python tools/configure_native_engine.py --source native-source --build native-build --architecture ${{ matrix.architecture }} --output artifacts/Build_${{ matrix.architecture }}.json
       - name: Compila soltanto il motore
         run: cmake --build native-build --config Release --target llama-server --parallel 4
       - name: Verifica binario nativo e assenza di dipendenze esterne
@@ -83,7 +78,7 @@ jobs:
               path=source/relative
               target=notices/relative
               target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(path.read_bytes())
-          provenance={'upstream':'https://github.com/ggml-org/llama.cpp','source_commit':'d80619397c2ba5cf1366c29f7d43699ca3a159b9','version':'b11756','architecture':architecture,'platform':platform.platform(),'build_run':'${{ github.run_id }}','build_commit':'${{ github.sha }}','msvc_runtime':'MultiThreaded','openmp':False,'openssl':False,'shared_libraries':False,'cpu_profile':('ARMv8-A baseline with optional dotprod/i8mm/SVE/SME disabled' if architecture=='ARM64' else 'x64 with AVX2/FMA/F16C/BMI2'),'cpu_feature_checks':cpu_features,'version_output':subprocess.check_output(['engine/llama-server.exe','--version'],stderr=subprocess.STDOUT,text=True).strip(),'scope':'CPU engine only. No model weights, inference, or student data.'}
+          provenance={'upstream':'https://github.com/ggml-org/llama.cpp','source_commit':'d80619397c2ba5cf1366c29f7d43699ca3a159b9','version':'b11756','architecture':architecture,'platform':platform.platform(),'build_run':'${{ github.run_id }}','build_commit':'${{ github.sha }}','msvc_runtime':'MultiThreaded','openmp':False,'openssl':False,'shared_libraries':False,'cpu_profile':('ARMv8-A baseline with optional dotprod/i8mm/SVE/SME disabled' if architecture=='ARM64' else 'x64 with AVX2/FMA/F16C/BMI2'),'cpu_feature_checks':cpu_features,'verified_build_profile':json.loads(Path('artifacts/Build_'+architecture+'.json').read_text(encoding='utf-8')),'version_output':subprocess.check_output(['engine/llama-server.exe','--version'],stderr=subprocess.STDOUT,text=True).strip(),'scope':'CPU engine only. No model weights or student data. Model transport evidence is a separate release-gate artifact.'}
           Path('engine/Provenance.json').write_text(json.dumps(provenance,indent=2),encoding='utf-8')
           bundle=Path('artifacts')/('llama-b11756-uallera-static-win-'+architecture+'.zip')
           with zipfile.ZipFile(bundle,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as output:
@@ -92,7 +87,58 @@ jobs:
           digest={'name':bundle.name,'size':bundle.stat().st_size,'sha256':hashlib.sha256(bundle.read_bytes()).hexdigest(),'provenance':provenance}
           Path('artifacts/Asset_'+architecture+'.json').write_text(json.dumps(digest,indent=2),encoding='utf-8')
           print(json.dumps(digest,indent=2))
+      - name: Verifica un’inferenza nativa prima della pubblicazione
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, json, shutil, sys, time
+          sys.path.insert(0,str(Path.cwd()))
+          from tools import prepare_minerva as setup
+          from jamovi_audit import local_llm, minerva_review
+          arch='${{ matrix.architecture }}'
+          manifest=json.loads(Path('artifacts/Asset_'+arch+'.json').read_text(encoding='utf-8'))
+          runtime=setup.Asset(manifest['name'],'https://github.com/valerioghezzi/UAllera/releases/download/minerva-b11756-static-2/'+manifest['name'],manifest['size'],manifest['sha256'])
+          destination=Path('.build-model-check').resolve()
+          downloads=destination/'downloads';downloads.mkdir(parents=True)
+          shutil.copyfile(Path('artifacts')/runtime.name,downloads/runtime.name)
+          original=setup.RUNTIMES[arch];setup.RUNTIMES[arch]=runtime
+          proof={'status':'not_completed','architecture':arch,'scope':'One public synthetic native CPU inference. Transport and cleanup only; not semantic validation.'}
+          output=Path('artifacts/Prova_Minerva_'+arch+'.json')
+          output.write_text(json.dumps(proof,indent=2),encoding='utf-8')
+          last=[None]
+          def progress(event):
+              marker=(event['stage'],event['message'])
+              if marker!=last[0]:print(round(time.monotonic(),3),event['stage'],event['message'],flush=True);last[0]=marker
+          prepared=None
+          try:
+              started=time.monotonic();prepared=setup.prepare(destination,arch,progress)
+              proof['setup_seconds']=round(time.monotonic()-started,3)
+              started=time.monotonic()
+              with setup.launch(prepared,progress=progress) as server:
+                  proof['startup_seconds']=round(time.monotonic()-started,3)
+                  config=local_llm.validate_config({'enabled':True,'provider':'llamacpp','endpoint':server.base_url,'model':server.model,'timeout':900,'_managed_minerva':server})
+                  text='Una correlazione descrive una associazione, ma da sola non dimostra un rapporto di causa ed effetto.'
+                  document={'sha256':hashlib.sha256(text.encode()).hexdigest(),'paragraphs':[{'text':text,'location':'Synthetic paragraph 1'}]}
+                  started=time.monotonic()
+                  result=minerva_review.review(document,{},None,config,target_part=6,criterion='Distinguere associazione e causalità: una correlazione da sola non dimostra causalità.')
+                  proof['review_seconds']=round(time.monotonic()-started,3)
+                  proof['result']=result
+                  assert result['status']=='complete' and result['response_count']==1 and result['coverage']['successful_chunks']==1
+              assert server.cleanup_complete
+              proof.update(status='complete',cleanup_complete=True,model_sha256=setup.MODEL.sha256,tokenizer_sha256=setup.TOKENIZER.sha256,runtime_sha256=runtime.sha256)
+              output.write_text(json.dumps(proof,ensure_ascii=False,indent=2),encoding='utf-8')
+              print('Native model transport and owned cleanup passed.',flush=True)
+          except Exception as error:
+              proof.update(status='failed',exception_type=type(error).__name__)
+              output.write_text(json.dumps(proof,ensure_ascii=False,indent=2),encoding='utf-8')
+              if prepared is not None:
+                  from tools.debug_windows_engine import main
+                  main(['--executable',str(prepared.executable_path),'--model',str(prepared.model_path),'--template',str(prepared.template_path),'--output','artifacts/Exception_'+arch+'.json','--timeout','120'])
+              raise RuntimeError('Native model transport failed; inspect recorded diagnostics.') from None
+          finally:
+              setup.RUNTIMES[arch]=original
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Minerva-autonomo-${{ matrix.architecture }}
           path: artifacts/
@@ -115,6 +161,6 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          Path('native-notes.md').write_text('CPU engines built from official llama.cpp b11756 (d80619397c2ba5cf1366c29f7d43699ca3a159b9). Static MSVC runtime, OpenMP and HTTPS disabled. Each native architecture passed the PE import-closure check and --version. No model inference or student data. See asset manifests and bundled license notices.\n',encoding='utf-8')
+          Path('native-notes.md').write_text('CPU engines built from official llama.cpp b11756 (d80619397c2ba5cf1366c29f7d43699ca3a159b9). Static MSVC runtime, OpenMP and HTTPS disabled. The x64 AVX2 profile is checked from effective CMake output and generated compiler options. The binary passed PE import closure, --version, and one public synthetic Minerva CPU inference before publication. No model weights or student data are included. This transport test is not semantic validation. See asset manifests and bundled license notices.\n',encoding='utf-8')
           PY
-          gh release create minerva-b11756-static-1 native-artifacts/*.zip native-artifacts/*.json --target '${{ github.sha }}' --title 'Minerva CPU b11756 — autonomous Windows engines' --notes-file native-notes.md --prerelease
+          gh release create minerva-b11756-static-2 native-artifacts/*.zip native-artifacts/*.json --target '${{ github.sha }}' --title 'Minerva CPU b11756 — autonomous Windows engines' --notes-file native-notes.md --prerelease

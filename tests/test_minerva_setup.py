@@ -7,6 +7,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 import zipfile
@@ -235,7 +236,7 @@ class SetupTests(SetupFixture, unittest.TestCase):
 
 _FIXTURE_SERVER = r'''
 import http.server, json, sys, time
-port, key, alias, mode = sys.argv[1:]
+port, key, alias, mode, request_log = sys.argv[1:]
 if mode == 'exit': sys.exit(17)
 if mode == 'timeout': time.sleep(30); sys.exit(0)
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -243,8 +244,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.headers.get('Authorization') != 'Bearer ' + key:
             self.send_response(401); self.end_headers(); return
-        data = json.dumps({'data': [{'id': alias}]}).encode()
-        self.send_response(200); self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
+        with open(request_log, 'a') as output: output.write(self.path + '\n')
+        status = 200
+        if self.path == '/health':
+            status = 503 if mode == 'health503' else 200
+            data = b'not-json' if mode == 'health_nonjson' else json.dumps({'status': 'loading' if mode == 'health_nonok' else 'ok'}).encode()
+        else:
+            data = json.dumps({'data': [{'id': 'different-model' if mode == 'wrong_alias' else alias}]}).encode()
+        self.send_response(status); self.send_header('Content-Length', str(len(data))); self.end_headers()
+        if mode == 'health_drip' and self.path == '/health':
+            for byte in data:
+                self.wfile.write(bytes([byte])); self.wfile.flush(); time.sleep(.1)
+        else: self.wfile.write(data)
 http.server.HTTPServer(('127.0.0.1', int(port)), Handler).serve_forever()
 '''
 
@@ -254,6 +265,7 @@ class LaunchTests(SetupFixture, unittest.TestCase):
         super().setUp()
         self.prepared = minerva.prepare(self.root, 'x64')
         self.commands = []; self.processes = []; self.fixture_mode = 'ready'
+        self.request_log = self.root / 'http-requests.txt'
         self.real_popen = subprocess.Popen
         patcher = mock.patch.object(minerva.subprocess, 'Popen', side_effect=self.spawn_fixture)
         patcher.start(); self.addCleanup(patcher.stop); self.addCleanup(self.cleanup_processes)
@@ -266,7 +278,7 @@ class LaunchTests(SetupFixture, unittest.TestCase):
     def spawn_fixture(self, args, **kwargs):
         self.commands.append(args)
         value = lambda flag: args[args.index(flag) + 1]
-        process = self.real_popen([sys.executable, '-c', _FIXTURE_SERVER, value('--port'), value('--api-key'), value('--alias'), self.fixture_mode], **kwargs)
+        process = self.real_popen([sys.executable, '-c', _FIXTURE_SERVER, value('--port'), value('--api-key'), value('--alias'), self.fixture_mode, str(self.request_log)], **kwargs)
         self.processes.append(process)
         return process
 
@@ -279,9 +291,40 @@ class LaunchTests(SetupFixture, unittest.TestCase):
                 args = self.commands[-1]
                 for flag, value in (('--host', '127.0.0.1'), ('--ctx-size', '4096'), ('--parallel', '1'), ('--alias', minerva.MODEL_ALIAS)):
                     self.assertEqual(value, args[args.index(flag) + 1])
-                for flag in ('--offline', '--no-webui', '--jinja', '--chat-template-file'): self.assertIn(flag, args)
+                for flag in ('--offline', '--no-webui', '--jinja', '--chat-template-file', '--no-warmup'): self.assertIn(flag, args)
                 self.assertNotIn(server.api_key, repr(server))
         self.assertIsNotNone(server.process.poll()); server.stop()
+
+    def test_health_ok_precedes_authenticated_matching_alias(self):
+        with minerva.launch(self.prepared, startup_timeout=5):
+            self.assertEqual(self.request_log.read_text().splitlines(), ['/health', '/v1/models'])
+
+    def test_models_alias_cannot_override_unhealthy_or_invalid_health(self):
+        for mode in ('health503', 'health_nonok', 'health_nonjson'):
+            with self.subTest(mode=mode):
+                self.fixture_mode = mode
+                self.request_log.unlink(missing_ok=True)
+                with self.assertRaises(TimeoutError) as failure:
+                    minerva.launch(self.prepared, startup_timeout=.4)
+                self.assertIsNotNone(self.processes[-1].poll())
+                self.assertTrue(self.request_log.exists())
+                self.assertEqual(set(self.request_log.read_text().splitlines()), {'/health'})
+                secret = self.commands[-1][self.commands[-1].index('--api-key') + 1]
+                self.assertNotIn(secret, str(failure.exception))
+
+    def test_readiness_deadline_bounds_a_slow_dripping_health_body(self):
+        self.fixture_mode = 'health_drip'
+        before = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            minerva.launch(self.prepared, startup_timeout=.4)
+        self.assertLess(time.monotonic() - before, 1.2)
+        self.assertIsNotNone(self.processes[-1].poll())
+
+    def test_health_ok_without_matching_alias_is_not_ready(self):
+        self.fixture_mode = 'wrong_alias'
+        with self.assertRaises(TimeoutError):
+            minerva.launch(self.prepared, startup_timeout=.4)
+        self.assertIsNotNone(self.processes[-1].poll())
 
     def test_busy_port_never_adopts_or_terminates_existing_service(self):
         with socket.socket() as listener:

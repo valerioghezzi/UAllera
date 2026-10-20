@@ -378,7 +378,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def launch(prepared_or_destination, architecture=None, *, port=0, startup_timeout=120, progress=None):
+def launch(prepared_or_destination, architecture=None, *, port=0, startup_timeout=600, progress=None):
     """Start verified cached assets, wait for authenticated readiness, return owner.
 
     No downloads occur here. ``api_key`` is a fresh internal loopback capability,
@@ -401,7 +401,7 @@ def launch(prepared_or_destination, architecture=None, *, port=0, startup_timeou
     key = secrets.token_urlsafe(32)
     arguments = [str(prepared.executable_path), '--model', str(prepared.model_path),
         '--host', '127.0.0.1', '--port', str(port), '--ctx-size', '4096',
-        '--parallel', '1', '--alias', MODEL_ALIAS, '--offline', '--no-webui',
+        '--parallel', '1', '--alias', MODEL_ALIAS, '--offline', '--no-webui', '--no-warmup',
         '--jinja', '--chat-template-file', str(prepared.template_path), '--api-key', key]
     options = {'cwd': str(prepared.executable_path.parent), 'stdin': subprocess.DEVNULL,
         'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
@@ -424,17 +424,50 @@ def launch(prepared_or_destination, architecture=None, *, port=0, startup_timeou
             code = process.poll()
             if code is not None:
                 raise RuntimeError(f'Il motore Minerva locale è terminato durante l’avvio (codice {code}).')
-            request = urllib.request.Request(server.base_url + '/v1/models', headers={'Authorization': 'Bearer ' + key})
             try:
-                with opener.open(request, timeout=min(1.0, max(.01, deadline - time.monotonic()))) as response:
-                    data = response.read(65537)
-                    if len(data) <= 65536:
+                ready = True
+                for endpoint in ('/health', '/v1/models'):
+                    # An advertised alias is not readiness: /models can be
+                    # available before model loading has completed.
+                    _progress(progress, 'loading', message='Caricamento Minerva locale in memoria')
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        ready = False
+                        break
+                    request = urllib.request.Request(server.base_url + endpoint,
+                        headers={'Authorization': 'Bearer ' + key})
+                    with opener.open(request, timeout=min(1.0, remaining)) as response:
+                        # read1 returns after one buffered/socket read: a peer
+                        # sending small chunks cannot keep resetting the socket
+                        # timeout past our absolute readiness deadline.
+                        data = bytearray()
+                        while len(data) <= 65536:
+                            _progress(progress, 'loading', message='Caricamento Minerva locale in memoria')
+                            if time.monotonic() >= deadline:
+                                raise TimeoutError('Tempo di caricamento Minerva locale superato.')
+                            block = response.read1(min(4096, 65537 - len(data)))
+                            if not block:
+                                break
+                            data.extend(block)
+                        if response.status != 200 or len(data) > 65536:
+                            ready = False
+                            break
                         payload = json.loads(data)
-                        if any(item.get('id') == MODEL_ALIAS for item in payload.get('data', []) if isinstance(item, dict)):
-                            if process.poll() is not None:
-                                continue
-                            _progress(progress, 'ready', message='Minerva locale avviato')
-                            return server
+                    if not isinstance(payload, dict):
+                        ready = False
+                        break
+                    if endpoint == '/health':
+                        ready = payload.get('status') == 'ok'
+                    else:
+                        rows = payload.get('data')
+                        ready = isinstance(rows, list) and any(
+                            isinstance(item, dict) and item.get('id') == MODEL_ALIAS for item in rows)
+                    if not ready or time.monotonic() >= deadline:
+                        ready = False
+                        break
+                if ready and process.poll() is None:
+                    _progress(progress, 'ready', message='Minerva locale avviato')
+                    return server
             except (OSError, ValueError, urllib.error.URLError):
                 pass
             time.sleep(min(.1, max(0, deadline - time.monotonic())))
