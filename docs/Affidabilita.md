@@ -1,10 +1,10 @@
 # Affidabilità, evidenze e prestazioni
 
-Stato della versione di sviluppo `0.3.0-dev.2`, 20 ottobre 2026. Questa guida descrive i controlli implementati, le prove eseguite e i limiti che il tutor deve considerare. I risultati del modello linguistico e i test del software restano verifiche distinte.
+Stato della versione di sviluppo `0.3.0-dev.3`, 20 ottobre 2026. Questa guida descrive i controlli implementati, le prove eseguite e i limiti che il tutor deve considerare. I risultati del modello linguistico e i test del software restano verifiche distinte.
 
 ## Utilizzare il controllo
 
-Nel pacchetto Windows della propria architettura, estrarre tutti i file e aprire `Avvia_UAllera.cmd`. Il runtime Python è incluso. Se si usa Minerva, preparare prima gli asset pubblici con la funzione dedicata: la prima preparazione richiede la rete; l'analisi successiva utilizza i file locali verificati. Il controllo deterministico e il benchmark descritti qui non richiedono un modello.
+Nel pacchetto Windows della propria architettura, estrarre tutti i file e aprire `Avvia_UAllera.cmd`. Il runtime Python è incluso. Se si utilizza Minerva, preparare prima gli asset pubblici con la funzione dedicata: la prima preparazione richiede la rete; l'analisi successiva utilizza i file locali verificati. Il controllo deterministico e il benchmark descritti qui non richiedono un modello.
 
 Selezionare lo ZIP con le cartelle degli studenti. Il rapporto HTML comprende ogni consegna individuata, le associazioni OMV–Word, le ambiguità e le parti non verificabili. Gli archivi annidati sono segnalati senza espansione automatica. Le copie originali restano intatte.
 
@@ -61,7 +61,7 @@ Il JSON forensic raccoglie versione, ambiente, hash dello ZIP, stato e copertura
 
 Il contratto dei lettori è `omv11-docx-body-1`. L'archivio OMV riconosciuto è `11.0`; il lettore conserva la versione dichiarata e gli errori. Questo riconoscimento non certifica ogni versione dell'applicazione jamovi, ogni modulo aggiuntivo o la freschezza degli output salvati.
 
-Per Word, l'evidenza segue i paragrafi del corpo e delle tabelle nell'ordine XML supportato. Intestazioni, note, forme e altre componenti escluse sono dichiarate nel manifesto di estrazione. Le posizioni XML non equivalgono a pagine Word. I confronti testuali usano le sorgenti nell'ordine originale quando disponibili; limiti su blocchi, token e candidati compaiono nella diagnostica. Un limite raggiunto può ridurre la ricerca e impedisce di interpretare l'assenza di segnalazioni come ricerca esaustiva.
+Per Word, l'evidenza segue i paragrafi del corpo e delle tabelle nell'ordine XML riconosciuto. Intestazioni, note, forme e altre componenti escluse sono dichiarate nel manifesto di estrazione. Le posizioni XML non equivalgono a pagine Word. I confronti testuali utilizzano le sorgenti nell'ordine originale quando disponibili; limiti su blocchi, token e candidati compaiono nella diagnostica. Un limite raggiunto può ridurre la ricerca e impedisce di interpretare l'assenza di segnalazioni come ricerca esaustiva.
 
 Il controllo di compatibilità è locale: `network_check_performed` è falso e non viene cercata online una versione più recente durante l'analisi. Un futuro cambiamento di jamovi o Word richiederà documenti di prova, aggiornamento del lettore e verifica del contratto. La compatibilità futura non è accertabile dai soli numeri di versione attuali.
 
@@ -75,7 +75,7 @@ python -S -m unittest discover -s tests -v
 
 I casi avversari aggiunti esercitano i limiti aggregati degli archivi, il conteggio delle directory, la compressione elevata, percorsi ostili nei documenti, DTD anche in XML UTF-16, delimitatori di ruolo e HTML, prefissi molto lunghi e template obbligatori condivisi. I controlli UTF-16 includono documenti validi, per verificare che la protezione non respinga indiscriminatamente quella codifica.
 
-Le proprietà generative sono solo di sviluppo. Usare un ambiente virtuale con Python almeno 3.11:
+Le proprietà generative sono solo di sviluppo. Utilizzare un ambiente virtuale con Python almeno 3.11:
 
 ```bash
 python -m venv .venv-dev
@@ -86,7 +86,7 @@ python -m venv .venv-dev
 
 Hypothesis è fissato a `6.170.5` in `requirements-dev.txt`; non è una dipendenza dell'applicazione distribuita. Le sei proprietà riguardano codifiche Word, nomi ZIP, percorsi non sicuri, hash del contenuto, ordine dell'inventario e invarianza delle coppie confrontate. Ogni proprietà ha fino a 60 esempi deterministici. Senza Hypothesis, il modulo viene esplicitamente saltato: uno skip non è una proprietà eseguita. Nella prova locale isolata tutte e sei le proprietà sono state eseguite con esito positivo; i 13 test avversari e di contratto del benchmark sono passati.
 
-Il workflow [`affidabilita.yml`](../.github/workflows/affidabilita.yml) usa Linux e Python 3.12, installa solo le dipendenze di sviluppo, esegue questi test e misura classi da 10 e 30 studenti nei due scenari. Controlla struttura e contatori del JSON, poi conserva l'artefatto per 14 giorni. Non scarica né avvia modelli. I risultati effettivi sono quelli del singolo job concluso; l'esistenza del workflow non prova che una futura esecuzione passi.
+Il workflow [`affidabilita.yml`](../.github/workflows/affidabilita.yml) utilizza Linux e Python 3.12, installa solo le dipendenze di sviluppo, esegue questi test e misura classi da 10 e 30 studenti nei due scenari. Controlla struttura e contatori del JSON, poi conserva l'artefatto per 14 giorni. Non scarica né avvia modelli. I risultati effettivi sono quelli del singolo job concluso; l'esistenza del workflow non prova che una futura esecuzione passi.
 
 Per una misura locale più ampia:
 
@@ -94,7 +94,7 @@ Per una misura locale più ampia:
 python tools/benchmark_audit.py --sizes 10 100 --seed 1729 --output benchmark_artifacts/benchmark.json
 ```
 
-Il generatore usa ZIP sintetici riproducibili, colonne numeriche, una piccola tabella descrittiva salvata e testo Word con marcatori lessicali artificiali. Lo scenario `mixed_duplicates` ripete una coppia di documenti ogni cinque studenti. Sono ammessi al massimo otto dimensionamenti distinti, da 1 a 1000 studenti, e ZIP sintetici fino a 64 MiB. Questi limiti non significano che sia stato misurato il caso da 1000 studenti.
+Il generatore utilizza ZIP sintetici riproducibili, colonne numeriche, una piccola tabella descrittiva salvata e testo Word con marcatori lessicali artificiali. Lo scenario `mixed_duplicates` ripete una coppia di documenti ogni cinque studenti. Sono ammessi al massimo otto dimensionamenti distinti, da 1 a 1000 studenti, e ZIP sintetici fino a 64 MiB. Questi limiti non significano che sia stato misurato il caso da 1000 studenti.
 
 Il JSON registra seed, hash dell'input e del sorgente, versione software, Python e piattaforma, disponibilità e hash del riferimento locale, durata, picco `tracemalloc`, contatori e rapporti di scala. La durata comprende `audit_zip` e la generazione HTML, escludendo la costruzione della fixture; l'inferenza linguistica è disabilitata. Il picco misura allocazioni Python tracciate e include il costo della strumentazione: **non è RSS**, memoria nativa totale o consumo di Minerva.
 
@@ -118,6 +118,26 @@ La compattazione riduce il picco da circa 188 a 111 MB, circa il 41% in meno ris
 Nei due casi finali da 100 studenti sono registrati 37.800 rilievi deterministici. Lo scenario distinto ha zero rilievi incrociati; quello con duplicati ne ha 60: 20 coincidenze testuali, 20 OMV identici e 20 correlazioni temporali accessorie. Questi conteggi descrivono la fixture e i controlli eseguiti, non la sensibilità a frodi reali. Nel campione misto i candidati letterali sono 20 e quelli di blocco quasi coincidente 140, su 4950 coppie possibili.
 
 Le prime misure da 10 e 100 studenti riportano rapporti di scala; la prova compatta è stata ripetuta soltanto a 100 studenti. Non si può attribuirle un nuovo rapporto 10→100. Una singola misura non stima variabilità, percentili o velocità garantite su Windows x64 e ARM64. Prima di fissare un obiettivo operativo servono più ripetizioni, documenti rappresentativi, RSS e consumo del modello sull'hardware effettivo.
+
+## Motori Windows autonomi e limiti dei controlli nativi
+
+Il motore CPU deriva dal commit ufficiale llama.cpp `d80619397c2ba5cf1366c29f7d43699ca3a159b9` (`b11756`). La build integra il runtime MSVC, disattiva OpenMP, HTTPS e librerie condivise. I pacchetti originali dipendevano da DLL Visual C++ non incluse; una prova su un runner già provvisto di tali librerie non dimostrava l’autonomia su un computer nuovo.
+
+Il controllo `tools/inspect_native_imports.py --require-static-runtime` legge gli import PE ordinari e ritardati, verifica architettura e librerie mancanti e respinge dipendenze CRT/OpenMP anche se incluse. Gli API set ammessi sono un elenco finito. Il controllo non verifica esportazioni ABI, ogni chiamata dinamica a `LoadLibrary` o qualsiasi versione futura di Windows. Per questo resta necessaria anche la prova di avvio nativa; nessuno dei due controlli misura la qualità delle risposte Minerva.
+
+La compilazione x64 richiede una CPU con AVX2, FMA, F16C e BMI2. Per ARM64, il compilatore Microsoft richiede `GGML_NATIVE=ON`; i probe opzionali dotprod, i8mm, SVE e SME sono disabilitati esplicitamente per evitare di incorporare le estensioni del runner. La build deve verificare anche l’assenza di FP16 vettoriale opzionale. Le feature effettive, i digest e il comando di provenienza sono negli asset del motore; non si tratta di una certificazione su tutto l’hardware Windows.
+
+Le licenze comprendono i file LICENSE/COPYING/NOTICE del sorgente e i notice incorporati dei componenti individuati, compreso Mozilla/llamafile in `sgemm.cpp`. Le build e i loro risultati effettivi sono consultabili nel workflow dedicato; il solo testo della configurazione non dimostra che un pacchetto sia stato compilato correttamente.
+
+## Prova linguistica effettiva e risorse locali
+
+Il profilo `minerva-evidence-2.0-hf-tokenizer` ha completato la prova del 20 ottobre 2026: **13 giudizi concordanti su 70 casi sintetici (18,57%)**, con 70 risposte interpretabili. Nessuno dei 28 errori attesi è stato riconosciuto come errore; 30 risposte sono state rassicuranti quando non previsto. Il basso tasso di allarmi non è evidenza di qualità: il richiamo degli errori è nullo. I 72 input effettivi registrati (70 casi e due Word) coincidono integralmente con il template e il tokenizer ufficiali verificati; questa prova resta distinta dalla precedente codifica errata.
+
+Le due relazioni Word con conclusioni opposte sulla causalità hanno ricevuto entrambe «incompleta» per la parte 6. Il gate tecnico-linguistico è fallito. I 70 casi hanno richiesto 1475,716 secondi su Linux x64; download, caricamento e prova dei Word sono esclusi da questa durata. Gli artefatti del [run effettivo](https://github.com/valerioghezzi/UAllera/actions/runs/39490573473) conservano richieste, risposte, protocolli, rapporti e limiti. Sono casi artificiali redatti dall’assistente, senza validazione esterna; non misurano la sensibilità alle frodi reali. Il programma mostra l’esito negativo e mantiene le proposte linguistiche sperimentali, da riscontrare dal tutor.
+
+Il successivo esperimento `experimental-blue-triangle-calibration-1` aggiunge quattro dimostrazioni astratte soltanto al messaggio SYSTEM del revisore, poi valuta otto nuovi casi bilanciati con criteri normativi completi. Gli esempi e la soglia 8/8 sono fissati prima dell’inferenza. Il [run separato](https://github.com/valerioghezzi/UAllera/actions/runs/39496451448) ha prodotto otto risposte valide ma **zero concordanti**, in 103,618 secondi; sono comparse anche motivazioni sul pacco degli esempi estranei. La calibrazione è respinta e non modifica il profilo applicato agli studenti. È un esperimento con esempi nel prompt, non addestramento dei pesi. Casi, richieste, risposte e gate rimangono disponibili insieme alla baseline dei 70 casi; nessun esito negativo è trasformato in prova di qualità.
+
+Un tentativo locale precedente, nello spazio di lavoro limitato a 8 GiB di memoria, è stato interrotto prima di ottenere giudizi completi. È un limite delle risorse osservate, non una misura della qualità semantica. La prova completa è stata effettuata su un runner Linux diverso; non fornisce tempi o consumi garantiti su Windows x64 o ARM64. L’avvio del binario Windows e la qualità dell’inferenza rimangono verifiche distinte.
 
 ## Estensioni a plugin: proposta futura
 

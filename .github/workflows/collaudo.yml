@@ -75,6 +75,40 @@ jobs:
           result=subprocess.run([str(folder/'llama-server.exe'),'--version'],cwd=folder,capture_output=True,text=True,timeout=30)
           print('Native Minerva engine:',arch,result.stdout,result.stderr)
           assert result.returncode==0
+      - name: Inferenza Minerva nativa su testo artificiale
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, json, platform, sys, time
+          sys.path.insert(0,str(Path.cwd()))
+          from tools.prepare_minerva import MODEL, RUNTIMES, TOKENIZER, prepare, launch
+          from jamovi_audit import local_llm, minerva_review
+          arch='ARM64' if platform.machine().lower() in ('arm64','aarch64') else 'x64'
+          proof_folder=Path('native-proof');proof_folder.mkdir()
+          (proof_folder/'Imports.json').write_bytes(Path('.minerva-native/Imports.json').read_bytes())
+          (proof_folder/'Prova_Minerva.json').write_text(json.dumps({'status':'not_completed','scope':'Native transport check did not reach completion.'}),encoding='utf-8')
+          before=time.monotonic()
+          print('Preparing pinned public assets for native transport check:',arch,flush=True)
+          prepared=prepare(Path('.minerva-smoke'),arch)
+          text='Una correlazione descrive una associazione, ma da sola non dimostra un rapporto di causa ed effetto.'
+          document={'sha256':hashlib.sha256(text.encode()).hexdigest(),'paragraphs':[{'text':text,'location':'Synthetic paragraph 1'}]}
+          with launch(prepared) as server:
+              config=local_llm.validate_config({'enabled':True,'provider':'llamacpp','endpoint':server.base_url,'model':server.model,'timeout':900,'_managed_minerva':server})
+              result=minerva_review.review(document,{},None,config,target_part=6,criterion='Distinguere associazione e causalità: una correlazione da sola non dimostra causalità.')
+              assert result['status']=='complete',result['limits']
+              assert result['response_count']==1 and result['coverage']['successful_chunks']==1
+          assert server.cleanup_complete
+          proof={'architecture':arch,'seconds_including_setup':round(time.monotonic()-before,3),'model_sha256':MODEL.sha256,'runtime_sha256':RUNTIMES[arch].sha256,'tokenizer_sha256':TOKENIZER.sha256,'result':result,'scope':'One synthetic CPU inference, authenticated loopback, official input and cleanup. Transport only; no semantic accuracy claim.'}
+          (proof_folder/'Prova_Minerva.json').write_text(json.dumps(dict(proof,status='complete'),ensure_ascii=False,indent=2),encoding='utf-8')
+          print('Native Minerva transport and cleanup passed:',arch,flush=True)
+      - name: Conserva prova nativa del modello
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minerva-nativo-${{ matrix.arch }}
+          path: native-proof/*.json
+          retention-days: 14
       - name: Crea pacchetto Windows x64
         if: runner.os == 'Windows' && matrix.arch == 'x64'
         run: python tools/build_windows.py --arch x64

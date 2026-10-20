@@ -112,7 +112,8 @@ def review(docx, report, reference, config, cancelled=None, *, target_part=None,
     from .local_llm import _request
     parts=[target_part] if target_part else list(range(1,8))
     result={'status':'unavailable','rubric_version':'it-psychometrics-1.0','provider':'llamacpp','model':MODEL_ALIAS,'evaluation_profile':PROFILE,'findings':[],
-            'limits':['Proposte da confermare dal tutor; non certificano correttezza, autonomia o origine del testo.',
+            'limits':['Collaudo interno Minerva con tokenizer ufficiale non superato: 13 giudizi concordanti su 70 casi sintetici e nessun errore previsto riconosciuto; proposte sperimentali da riscontrare.',
+                      'Proposte da confermare dal tutor; non certificano correttezza, autonomia o origine del testo.',
                       'Ogni osservazione riguarda i passaggi citati; nessuna conclusione globale per maggioranza o assenza di errori.',
                       'I confini dei passaggi possono separare condizioni e negazioni: confrontare i passaggi adiacenti nel Word.',
                       'Annullamento tra richieste; una richiesta in corso resta soggetta al timeout configurato.'],

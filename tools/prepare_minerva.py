@@ -49,12 +49,12 @@ TOKENIZER = Asset(
     3667107, '0d8b77024a99bb31ba2b4fb6e0efed0910335ad77ac2d922ca09ed0a05f65f4d',
 )
 RUNTIMES = {
-    'x64': Asset('llama-b11756-bin-win-cpu-x64.zip',
-        'https://github.com/ggml-org/llama.cpp/releases/download/b11756/llama-b11756-bin-win-cpu-x64.zip',
-        23959301, 'd164195b8f3e92f8fd92bc3a5c0eeaef8707b2f1a979e36360ce8192ebf4fbb3'),
-    'ARM64': Asset('llama-b11756-bin-win-cpu-arm64.zip',
-        'https://github.com/ggml-org/llama.cpp/releases/download/b11756/llama-b11756-bin-win-cpu-arm64.zip',
-        12609658, 'ba47a12a87d45a3a717d717e81334e65b725df051c8adf8f68accd824d05a126'),
+    'x64': Asset('llama-b11756-uallera-static-win-x64.zip',
+        'https://github.com/valerioghezzi/UAllera/releases/download/minerva-b11756-static-1/llama-b11756-uallera-static-win-x64.zip',
+        5063594, '51506e6d3f525b76298ba1ec4864edc0001ad2d47cd3d25afa3c933920406cb8'),
+    'ARM64': Asset('llama-b11756-uallera-static-win-ARM64.zip',
+        'https://github.com/valerioghezzi/UAllera/releases/download/minerva-b11756-static-1/llama-b11756-uallera-static-win-ARM64.zip',
+        4819205, 'f31d1b20bbdf1771e1a03d1ab123b10de1fc16201b5747af2d4f28729239a34b'),
 }
 PE_MACHINES = {'x64': 0x8664, 'ARM64': 0xAA64}
 _CHUNK = 1024 * 1024
@@ -77,7 +77,7 @@ def _architecture(value):
     try:
         return aliases[str(value).lower()]
     except KeyError:
-        raise ValueError('Architettura Minerva non supportata: ' + str(value)) from None
+        raise ValueError('Architettura Minerva non gestita: ' + str(value)) from None
 
 
 def _progress(callback, stage, current=0, total=0, message=''):
