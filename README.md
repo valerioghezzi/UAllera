@@ -51,3 +51,18 @@ Esempio CLI:
 ```bash
 python audit_cli.py consegne.zip --local-engine ollama --model nome-modello-locale -o Rapporto_esercitazioni.html
 ```
+
+
+## Verifica del modello su casi separati
+
+Il pulsante **Verifica modello su 70 casi nuovi** avvia una prova locale senza caricare consegne studente. I testi sono separati dalle35 dimostrazioni del prompt. Il rapporto include copertura degli esiti citabili, concordanza con le etichette attese, errori concettuali riconosciuti, falsi allarmi e rassicurazioni erronee. Le risposte non valutabili e le interruzioni restano visibili; un motore assente interrompe la prova dopo il primo tentativo.
+
+I casi e le etichette sono sintetici e redatti dall'assistente: richiedono approvazione del docente. La separazione dei testi evita il riuso esatto degli esempi, ma non rende la prova una validazione esterna indipendente. Non misura la capacità di scoprire frodi.
+
+Da terminale:
+
+```bash
+python tools/validate_local.py --provider ollama --model nome-modello --output Validazione_modello.html
+```
+
+Vengono salvati un HTML autonomo e il corrispondente JSON. Il precedente comando `tools/calibrate_local.py` conserva i35 esempi già visibili nel prompt per verificare l'aderenza alle dimostrazioni.

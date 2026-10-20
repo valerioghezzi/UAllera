@@ -172,12 +172,12 @@ def validate_config(config=None):
     if not isinstance(model, str) or len(model) > 200 or any(ord(c) < 32 for c in model) or _CLOUD.search(model):
         raise ValueError('Nome modello locale non valido o modello cloud/remote non ammesso.')
     try:
-        timeout = float(source.get('timeout', 120))
+        timeout = float(source.get('timeout', 300))
         max_input = int(source.get('max_input_chars', 60000))
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError('Timeout o limite contesto non valido.') from exc
-    if not math.isfinite(timeout) or not 1 <= timeout <= 120 or not 4000 <= max_input <= 120000:
-        raise ValueError('Timeout ammesso 1–120 secondi; contesto 4000–120000 caratteri.')
+    if not math.isfinite(timeout) or not 1 <= timeout <= 900 or not 4000 <= max_input <= 120000:
+        raise ValueError('Timeout ammesso 1–900 secondi; contesto 4000–120000 caratteri.')
     displayhost = '[' + host + ']' if ':' in host else host
     return dict(enabled=enabled, provider=provider, endpoint=f'http://{displayhost}:{port}', host=host,
                 port=port, model=model.strip(), timeout=timeout, max_input_chars=max_input)
@@ -206,6 +206,8 @@ def _request(config, method, path, payload=None, cancelled=None):
         return value
     except InterruptedError:
         raise
+    except TimeoutError as exc:
+        raise LocalEngineError(f"Timeout del motore locale ({config['timeout']:g} secondi). L’attesa è configurabile; verificare tempi di avvio e velocità del modello.") from exc
     except (OSError, http.client.HTTPException, ValueError) as exc:
         raise LocalEngineError('Motore locale irraggiungibile o risposta JSON non valida.') from exc
     finally:
