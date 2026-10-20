@@ -2,6 +2,14 @@ name: Minerva locale - prova reale
 on:
   push:
     branches: [feature/minerva-locale]
+    paths:
+      - jamovi_audit/minerva_review.py
+      - jamovi_audit/local_llm.py
+      - jamovi_audit/validation.py
+      - jamovi_audit/validation_cases.py
+      - jamovi_audit/readers.py
+      - jamovi_audit/pipeline.py
+      - tools/ci_minerva.py
   workflow_dispatch:
 permissions:
   contents: read

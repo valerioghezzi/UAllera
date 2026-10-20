@@ -30,7 +30,12 @@ def archive(entries=None, machine=0x8664):
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w') as bundle:
         for name, data in (entries or {'llama-server.exe': pe(machine), 'ggml.dll': b'fixture-library'}).items():
-            bundle.writestr(name, data)
+            # Bypass ZipInfo's host-dependent filename normalization: these
+            # fixtures must preserve the actual untrusted bytes on Windows too.
+            info = zipfile.ZipInfo('fixture')
+            info.filename = name
+            info.orig_filename = name
+            bundle.writestr(info, data)
     return output.getvalue()
 
 
@@ -155,12 +160,45 @@ class SetupTests(SetupFixture, unittest.TestCase):
         self.assertEqual(3, len(self.downloads))
 
     def test_unsafe_zip_paths_rejected_before_extraction(self):
-        for path in ('../escape', '/absolute', 'C:/drive', 'folder\\escape', 'file:stream', 'NUL', 'folder./x'):
+        paths = ('../escape', '..\\escape', '..\\..\\escape', '/absolute', 'C:/drive', 'C:\\drive', '\\\\server\\share\\evil', 'folder\\escape', 'file:stream', 'NUL', 'folder./x')
+        for index, path in enumerate(paths):
             with self.subTest(path=path):
+                destination = self.root / f'case-{index}'
                 self.configure(archive({'llama-server.exe': pe(), path: b'evil'}))
-                with self.assertRaisesRegex(ValueError, 'ZIP'): minerva.prepare(self.root, 'x64')
+                with self.assertRaisesRegex(ValueError, 'ZIP'): minerva.prepare(destination, 'x64')
                 self.assertFalse((self.root.parent / 'escape').exists())
-                self.assertFalse(list(self.root.rglob('llama-server.exe')))
+                self.assertFalse(list(destination.rglob('llama-server.exe')))
+
+    def test_forward_slash_nested_zip_paths_work_under_windows_normalization(self):
+        self.configure(archive({'llama-server.exe': pe(), 'backend/helper.dll': b'valid'}))
+        with mock.patch.object(zipfile.os, 'sep', '\\'):
+            prepared = minerva.prepare(self.root, 'x64')
+        self.assertEqual(b'valid', (prepared.executable_path.parent / 'backend/helper.dll').read_bytes())
+
+    def test_windows_filename_normalization_cannot_hide_unsafe_raw_zip_path(self):
+        raw_name = 'folder\\escape'
+        self.configure(archive({'llama-server.exe': pe(), raw_name: b'evil'}))
+        self.assertIn(raw_name.encode(), self.bundle)
+        # Reproduce Windows ZipInfo parsing on any development host.
+        with mock.patch.object(zipfile.os, 'sep', '\\'):
+            with zipfile.ZipFile(io.BytesIO(self.bundle)) as bundle:
+                info = bundle.infolist()[1]
+                self.assertEqual(raw_name, info.orig_filename)
+                self.assertEqual('folder/escape', info.filename)
+            with self.assertRaisesRegex(ValueError, 'ZIP'):
+                minerva.prepare(self.root, 'x64')
+        self.assertFalse(list(self.root.rglob('llama-server.exe')))
+
+    def test_nul_in_raw_zip_name_is_rejected_before_stdlib_truncation(self):
+        raw_name = 'ggml.dll\0hidden'
+        self.configure(archive({'llama-server.exe': pe(), raw_name: b'evil'}))
+        with zipfile.ZipFile(io.BytesIO(self.bundle)) as bundle:
+            info = bundle.infolist()[1]
+            self.assertEqual(raw_name, info.orig_filename)
+            self.assertEqual('ggml.dll', info.filename)
+        with self.assertRaisesRegex(ValueError, 'ZIP'):
+            minerva.prepare(self.root, 'x64')
+        self.assertFalse(list(self.root.rglob('llama-server.exe')))
 
     def test_wrong_pe_architecture_rejected(self):
         self.configure(archive(machine=0xaa64))

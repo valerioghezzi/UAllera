@@ -147,10 +147,13 @@ def _zip_members(bundle):
     seen = set()
     reserved = {'CON', 'PRN', 'AUX', 'NUL'} | {f'{stem}{n}' for stem in ('COM', 'LPT') for n in range(1, 10)}
     for info in members:
-        name = info.filename
+        # ZipInfo normalizes Windows separators and truncates at NUL. Validate
+        # the original central-directory name before either transformation can
+        # conceal an unsafe archive member. Valid ZIP paths need no rewriting.
+        name = info.orig_filename
         parts = name.rstrip('/').split('/')
         mode = info.external_attr >> 16
-        if (not name or '\\' in name or ':' in name or name.startswith('/') or
+        if (name != info.filename or not name or '\\' in name or ':' in name or name.startswith('/') or
                 any(not part or part in ('.', '..') or part.rstrip('. ') != part or
                     part.split('.')[0].upper() in reserved for part in parts) or
                 stat.S_ISLNK(mode) or (stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR)) or

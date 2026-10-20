@@ -9,6 +9,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'tests'))
 from playwright.sync_api import sync_playwright
 import app
 from test_pipeline import empty_omv, word
+from test_local_llm import engine
 
 
 def main():
@@ -20,7 +21,7 @@ def main():
         z.writestr('Classe/Due/a.omv',b'danneggiato')
     errors=[];external=[]
     try:
-        with sync_playwright() as p:
+        with engine(provider='lmstudio') as (fixture_config, fixture_calls), sync_playwright() as p:
             browser=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox'])
             page=browser.new_page(accept_downloads=True)
             page.on('pageerror',lambda error:errors.append(str(error)))
@@ -31,9 +32,14 @@ def main():
                 else:request.continue_()
             page.route('**/*',route)
             page.goto(f'http://127.0.0.1:{server.server_address[1]}/?token={server.token}')
+            assert page.input_value('#provider')=='minerva'
+            assert page.locator('#minervastart').is_visible()
             page.select_option('#provider','lmstudio')
             assert page.input_value('#endpoint')=='http://127.0.0.1:1234'
-            page.select_option('#provider','')
+            # A real tiny loopback fixture exercises browser configuration; it
+            # performs no model inference and never validates linguistic quality.
+            page.fill('#endpoint',fixture_config['endpoint'])
+            page.fill('#model',fixture_config['model'])
             page.set_input_files('#zip',{'name':'Consegne_artificiali.zip','mimeType':'application/zip','buffer':data.getvalue()})
             page.click('#start')
             page.locator('#download').wait_for(state='visible',timeout=30000)
@@ -43,6 +49,7 @@ def main():
             html=Path(download.path()).read_text(encoding='utf-8')
             assert html.count('id="student-')==2
             assert html.count('<html')==1
+            assert any(call[1]=='/v1/chat/completions' for call in fixture_calls)
             assert not errors,errors
             assert not external,external
             page.select_option('#provider','ollama')
