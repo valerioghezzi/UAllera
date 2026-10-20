@@ -14,6 +14,7 @@ LIMITS = [
     'Non misura la sensibilità alla frode, la paternità del testo o la capacità di scoprire copiature.',
     'Il risultato descrive soltanto questo modello, questa rubrica e questi casi; non certifica le consegne reali.',
     'Una citazione valida attesta la presenza del testo, non la correttezza del ragionamento del modello.',
+    'Valuta una domanda isolata con i criteri e cinque esempi della parte pertinente; non misura la revisione di un documento intero.',
 ]
 
 
@@ -50,6 +51,7 @@ def run_validation(config, cases=None, progress=None, cancelled=None):
     start = time.monotonic()
     result = dict(status='complete', provider=normalized['provider'], model=normalized['model'],
                   endpoint=normalized['endpoint'], timeout=normalized['timeout'], rubric_version=RUBRIC_VERSION, corpus_version=VALIDATION_VERSION,
+                  evaluation_profile='single-question-1.1',
                   corpus_sha256=hashlib.sha256(corpus_json.encode()).hexdigest(),
                   started_utc=datetime.now(timezone.utc).isoformat(), planned=len(selected), cases=[], limits=list(LIMITS))
     for case in selected:
@@ -63,7 +65,8 @@ def run_validation(config, cases=None, progress=None, cancelled=None):
         reference = {'linguistic_rubric': f"Valuta solo la parte {case['part']} rispetto a questo quesito: {case.get('criterion', 'Valutare il significato espresso.')}. Non richiedere altre parti o risultati non forniti. Titoli e comandi non sono risposte."}
         document = {'paragraphs': [{'index': 0, 'location': 'Paragrafo 1', 'text': case['text']}]}
         report = {'findings': [], 'statistical_context': case.get('statistical_context', [])}
-        review = assess_relation(document, report, reference, normalized, cancelled=cancelled)
+        review = assess_relation(document, report, reference, normalized, cancelled=cancelled,
+                                 target_part=case['part'], criterion=case.get('criterion', 'Valutare il significato espresso.'))
         findings = [f for f in review.get('findings', []) if f.get('part') == case['part']]
         predictions = {f.get('proposal') for f in findings if f.get('proposal') in LABELS}
         all_citable = bool(findings) and all(f.get('proposal') in LABELS for f in findings)
@@ -93,6 +96,7 @@ def render_validation(result):
     out = ['<!doctype html><html lang="it"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:"><title>Validazione linguistica UAllera</title><style>body{max-width:1200px;margin:32px auto;padding:0 20px;font:16px/1.6 Verdana,sans-serif;color:#111;background:white}table{border-collapse:collapse;width:100%;margin:20px 0}td,th{border:1px solid #777;padding:9px;text-align:left;vertical-align:top}th{background:#eee}pre{white-space:pre-wrap;overflow-wrap:anywhere}details{margin:12px 0}h1{font-size:28px}@media print{body{font-size:11pt}tr{break-inside:avoid}}</style></head><body><h1>Validazione linguistica del modello locale</h1>',
            '<p>Prova su casi sintetici separati dagli esempi del prompt. Nessun voto automatico o certificazione di idoneità del modello.</p>',
            f"<p>Motore: {e(result['provider'])}; modello: {e(result['model'])}; stato: {e(result['status'])}. Avvio UTC: {e(result['started_utc'])}.</p>",
+           f"<p>Profilo di valutazione: {e(result.get('evaluation_profile', 'documento completo, versione precedente'))}.</p>",
            f"<p>Rubrica: {e(result['rubric_version'])}; corpus: {e(result['corpus_version'])}. SHA-256 corpus: <code>{e(result['corpus_sha256'])}</code>.</p>",
            f"<p>Casi previsti: {result['planned']}; tentati: {result['attempted']}; con esito citabile: {result['evaluated']}; non eseguiti: {result['unexecuted']}. Durata: {result['seconds']} secondi.</p>",
            '<ul>' + ''.join('<li>'+e(item)+'</li>' for item in result['limits']) + '</ul>',

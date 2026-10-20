@@ -91,6 +91,44 @@ class LocalLlmTests(unittest.TestCase):
                 self.assertTrue(body['response_format']['json_schema']['strict'])
                 self.assertFalse(body['stream'])
 
+    def test_single_question_scope_is_trusted_and_bounds_model_output(self):
+        with engine('llamacpp', {'findings': [self.proposal]}) as (config, calls):
+            result = local_llm.assess_relation(self.document, {}, config=config,
+                target_part=6, criterion='Una covariazione dimostra un effetto causale?')
+        body = next(x[2] for x in calls if x[1] == '/v1/chat/completions')
+        self.assertIn('Una covariazione dimostra un effetto causale?', body['messages'][0]['content'])
+        self.assertLess(len(body['messages'][0]['content']), 6500)
+        self.assertIn('P6.correct', body['messages'][0]['content'])
+        self.assertNotIn('P5.correct', body['messages'][0]['content'])
+        schema = body['response_format']['json_schema']['schema']['properties']['findings']
+        self.assertEqual(1, schema['maxItems'])
+        self.assertEqual([6], schema['items']['properties']['part']['enum'])
+        self.assertLessEqual(body['max_tokens'], 1024)
+        self.assertEqual({6}, {f['part'] for f in result['findings']})
+        self.assertEqual('coerente', result['findings'][0]['proposal'])
+
+    def test_single_question_scope_cannot_accept_a_different_part(self):
+        with engine(response={'findings': [self.proposal]}) as (config, _):
+            result = local_llm.assess_relation(self.document, {}, config=config,
+                target_part=1, criterion='Qual è il livello di misura?')
+        self.assertEqual({1}, {f['part'] for f in result['findings']})
+        self.assertFalse(any(f.get('proposal') for f in result['findings']))
+
+    def test_single_question_rejects_duplicate_and_overlong_proposals(self):
+        for proposals in ([self.proposal, self.proposal], [{**self.proposal, 'explanation': 'x' * 241}]):
+            with self.subTest(proposals=proposals), engine(response={'findings': proposals}) as (config, _):
+                result = local_llm.assess_relation(self.document, {}, config=config,
+                    target_part=6, criterion='Che cosa implica la correlazione?')
+            self.assertEqual({6}, {f['part'] for f in result['findings']})
+            self.assertFalse(any(f.get('proposal') for f in result['findings']))
+
+    def test_single_question_cancellation_preserves_its_scope(self):
+        with engine() as (config, _):
+            result = local_llm.assess_relation(self.document, {}, config=config,
+                target_part=6, cancelled=lambda: True)
+        self.assertEqual('cancelled', result['status'])
+        self.assertEqual({6}, {f['part'] for f in result['findings']})
+
     def test_invalid_quote_and_location_never_validate(self):
         for change in ({'quote': 'Correlazione implica causalità.'}, {'location': 'Paragrafo 999'}, {'quote': ''}, {'part': 8}):
             with self.subTest(change=change), engine(response={'findings': [{**self.proposal, **change}]}) as (config, _):

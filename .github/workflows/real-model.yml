@@ -1,0 +1,27 @@
+name: Prova modello reale locale
+on:
+  push:
+    branches: [feature/prova-reale-locale]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Test software prima del modello
+        run: python -S -m unittest discover -s tests -v
+      - name: 70 casi nuovi e pipeline Word con inferenza CPU effettiva
+        run: python -u tools/ci_real_model.py
+      - name: Conserva rapporti e risposte effettive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prova-modello-reale
+          path: validation_artifacts/
+          retention-days: 3
