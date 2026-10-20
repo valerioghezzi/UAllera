@@ -1,0 +1,105 @@
+name: Motore Minerva Windows autonomo
+
+on:
+  push:
+    branches: [feature/minerva-runtime]
+    paths:
+      - .github/workflows/motore-autonomo.yml
+      - tools/inspect_native_imports.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            architecture: x64
+            cmake_architecture: x64
+          - os: windows-11-arm
+            architecture: ARM64
+            cmake_architecture: ARM64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: ggml-org/llama.cpp
+          ref: d80619397c2ba5cf1366c29f7d43699ca3a159b9
+          path: native-source
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          architecture: ${{ matrix.architecture == 'ARM64' && 'arm64' || 'x64' }}
+      - name: Verifica controllo delle dipendenze
+        run: python -S -m unittest discover -s tests -p test_native_imports.py -v
+      - name: Configura librerie integrate senza OpenMP o HTTPS
+        shell: pwsh
+        run: |
+          cmake -S native-source -B native-build -A ${{ matrix.cmake_architecture }} -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DBUILD_SHARED_LIBS=OFF -DGGML_BACKEND_DL=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_OPENMP_FETCH=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_NUMBER=11756 -DLLAMA_BUILD_COMMIT=d80619397 -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_CONNECT=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compila soltanto il motore
+        run: cmake --build native-build --config Release --target llama-server --parallel 4
+      - name: Verifica binario nativo e assenza di dipendenze esterne
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force engine, artifacts | Out-Null
+          Copy-Item native-build/bin/Release/llama-server.exe engine/
+          Get-ChildItem native-build/bin/Release/*.dll -ErrorAction SilentlyContinue | Copy-Item -Destination engine/
+          Copy-Item native-source/LICENSE engine/LICENSE-llama.cpp.txt
+          python tools/inspect_native_imports.py --directory engine --architecture ${{ matrix.architecture }} --require-static-runtime --output artifacts/Imports_${{ matrix.architecture }}.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./engine/llama-server.exe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Archivia motore e provenienza
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, json, platform, subprocess, zipfile
+          architecture='${{ matrix.architecture }}'
+          source=Path('native-source')
+          license_candidates=[p for p in source.rglob('*') if p.is_file() and p.name.lower().startswith(('license','copying','notice')) and '.git' not in p.parts]
+          notices=Path('engine/ThirdPartyNotices'); notices.mkdir()
+          for path in license_candidates:
+              target=notices/path.relative_to(source)
+              target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(path.read_bytes())
+          provenance={'upstream':'https://github.com/ggml-org/llama.cpp','source_commit':'d80619397c2ba5cf1366c29f7d43699ca3a159b9','version':'b11756','architecture':architecture,'platform':platform.platform(),'build_run':'${{ github.run_id }}','build_commit':'${{ github.sha }}','msvc_runtime':'MultiThreaded','openmp':False,'openssl':False,'shared_libraries':False,'version_output':subprocess.check_output(['engine/llama-server.exe','--version'],stderr=subprocess.STDOUT,text=True).strip(),'scope':'CPU engine only. No model weights, inference, or student data.'}
+          Path('engine/Provenance.json').write_text(json.dumps(provenance,indent=2),encoding='utf-8')
+          bundle=Path('artifacts')/('llama-b11756-uallera-static-win-'+architecture+'.zip')
+          with zipfile.ZipFile(bundle,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as output:
+              for path in sorted(Path('engine').rglob('*')):
+                  if path.is_file():output.write(path,path.relative_to('engine').as_posix())
+          digest={'name':bundle.name,'size':bundle.stat().st_size,'sha256':hashlib.sha256(bundle.read_bytes()).hexdigest(),'provenance':provenance}
+          Path('artifacts/Asset_'+architecture+'.json').write_text(json.dumps(digest,indent=2),encoding='utf-8')
+          print(json.dumps(digest,indent=2))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Minerva-autonomo-${{ matrix.architecture }}
+          path: artifacts/
+          retention-days: 14
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Minerva-autonomo-*
+          path: native-artifacts
+          merge-multiple: true
+      - name: Pubblica soltanto motori verificati e metadati
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          Path('native-notes.md').write_text('CPU engines built from official llama.cpp b11756 (d80619397c2ba5cf1366c29f7d43699ca3a159b9). Static MSVC runtime, OpenMP and HTTPS disabled. Each native architecture passed the PE import-closure check and --version. No model inference or student data. See asset manifests and bundled license notices.\n',encoding='utf-8')
+          PY
+          gh release create minerva-b11756-static-1 native-artifacts/*.zip native-artifacts/*.json --target '${{ github.sha }}' --title 'Minerva CPU b11756 — autonomous Windows engines' --notes-file native-notes.md --prerelease
