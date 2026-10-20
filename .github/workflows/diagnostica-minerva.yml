@@ -73,6 +73,19 @@ jobs:
               facts['seconds']=round(time.monotonic()-before,3)
               (root/'Esito.json').write_text(json.dumps(facts,indent=2),encoding='utf-8')
               print(json.dumps(facts),flush=True)
+      - name: Verifica debugger senza eseguire il modello
+        run: python -S -m unittest discover -s tests -p test_windows_debugger.py -v
+      - name: Acquisisci soltanto indirizzo e istruzione del fault
+        shell: python
+        run: |
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,str(Path.cwd()))
+          from tools.prepare_minerva import prepare
+          from tools.debug_windows_engine import main
+          prepared=prepare(Path('.minerva-diagnostic'),'x64')
+          result=main(['--executable',str(prepared.executable_path),'--model',str(prepared.model_path),'--template',str(prepared.template_path),'--output','diagnostic_artifacts/Exception.json','--timeout','120'])
+          if result:raise SystemExit(result)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -80,6 +93,7 @@ jobs:
           path: |
             diagnostic_artifacts/CPU.json
             diagnostic_artifacts/Backend.json
+            diagnostic_artifacts/Exception.json
             diagnostic_artifacts/Esito.json
             diagnostic_artifacts/Native_redacted.log
             diagnostic_artifacts/List_devices.log
