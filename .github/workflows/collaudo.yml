@@ -1,0 +1,71 @@
+name: Collaudo UAllera
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test ${{ matrix.os }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x64
+          - os: windows-latest
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          architecture: ${{ matrix.arch }}
+      - name: Verifica architettura reale
+        shell: python
+        run: |
+          import platform
+          actual=platform.machine().lower()
+          expected='${{ matrix.arch }}'
+          print('Architecture:',actual,'Python:',platform.python_version())
+          assert actual in (['arm64','aarch64'] if expected=='arm64' else ['amd64','x86_64'])
+      - name: Test senza dipendenze esterne
+        run: python -S -m unittest discover -s tests -v
+      - name: Test interfaccia nel browser con dati artificiali
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install playwright==1.56.0
+          python tools/smoke_browser.py
+      - name: Crea pacchetto Windows x64
+        if: runner.os == 'Windows' && matrix.arch == 'x64'
+        run: python tools/build_windows.py --arch x64
+      - name: Crea pacchetto Windows ARM64
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        run: python tools/build_windows.py --arch ARM64
+      - name: Collauda il runtime portatile nativo
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $arch = if ('${{ matrix.arch }}' -eq 'arm64') { 'ARM64' } else { 'x64' }
+          $package = Join-Path $PWD "dist/UAllera_Windows_$arch"
+          Push-Location $package
+          & ./runtime/python.exe -c "import platform; print(platform.machine()); assert platform.machine().lower() in (['arm64','aarch64'] if '$arch'=='ARM64' else ['amd64','x86_64'])"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./runtime/python.exe -S -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+      - name: Conserva pacchetto collaudato
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: UAllera-${{ matrix.arch }}
+          path: dist/*.zip
+          retention-days: 14
