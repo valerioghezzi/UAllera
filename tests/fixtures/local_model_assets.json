@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "checked_at_utc": "2026-10-21",
+  "scope": "Read-only metadata and small official configuration/template/source retrieval. No weights, runtime binaries, workflows, builds, or paid resources used.",
+  "repository_source_commit": "20b6be3c5c58c0f6c041f8d46fce62e9ca2cfaba",
+  "models": [
+    {
+      "id": "qwen3_8_27b",
+      "gguf_repo": "unsloth/Qwen3.8-27B-GGUF",
+      "gguf_revision": "4ca720788d1e01f1bff70c033e0d0028fd02e502",
+      "gguf_architecture": "qwen35",
+      "original_repo": "Qwen/Qwen3.8-27B",
+      "original_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+      "original_model_type": "qwen3_5",
+      "original_architecture": "Qwen3_5ForConditionalGeneration",
+      "files": [
+        {
+          "filename": "Qwen3.8-27B-UD-IQ4_XS.gguf",
+          "size_bytes": 14252845984,
+          "sha256": "40fac4050e940397dbf13087afd50f4734a11805bf9d65ef8ddd7483470e6199",
+          "fit_16_gib": "Marginal: weights alone are 13.27 GiB; reject unless measured available memory covers weights plus runtime, recurrent state, KV cache, and OS reserve.",
+          "size_gib": 13.274,
+          "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ4_XS.gguf",
+          "hash_evidence": "Expected payload SHA-256 reported by the Hugging Face LFS metadata; payload not downloaded or locally verified."
+        },
+        {
+          "filename": "Qwen3.8-27B-UD-Q4_K_M.gguf",
+          "size_bytes": 16464440224,
+          "sha256": "322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482",
+          "fit_16_gib": "Not practical: weights alone are 15.33 GiB before runtime and OS memory.",
+          "size_gib": 15.3337,
+          "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-Q4_K_M.gguf",
+          "hash_evidence": "Expected payload SHA-256 reported by the Hugging Face LFS metadata; payload not downloaded or locally verified."
+        }
+      ],
+      "original_files": [
+        {
+          "filename": "config.json",
+          "size_bytes": 4312,
+          "sha256": "191e0af232104ed8b65258cf3fb2b842e288008baca7633c11b82a1ac7203aab",
+          "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/config.json",
+          "hash_evidence": "SHA-256 computed over downloaded small text file bytes."
+        },
+        {
+          "filename": "chat_template.jinja",
+          "size_bytes": 8952,
+          "sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+          "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/chat_template.jinja",
+          "hash_evidence": "SHA-256 computed over downloaded small text file bytes."
+        },
+        {
+          "filename": "tokenizer_config.json",
+          "size_bytes": 17928,
+          "sha256": "b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27",
+          "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/tokenizer_config.json",
+          "hash_evidence": "SHA-256 computed over downloaded small text file bytes."
+        },
+        {
+          "filename": "tokenizer.json",
+          "size_bytes": 12809320,
+          "sha256": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+          "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/tokenizer.json",
+          "hash_evidence": "Expected payload SHA-256 reported by the pinned official Hugging Face LFS metadata; payload not downloaded or locally verified."
+        }
+      ],
+      "thinking": {
+        "original_default": "enabled",
+        "gguf_api_default": "enabled",
+        "switch": "enable_thinking",
+        "effort": [
+          "xhigh",
+          "medium",
+          "low"
+        ],
+        "effort_default": "xhigh",
+        "control": "Set chat_template_kwargs.enable_thinking explicitly; set reasoning_effort explicitly when enabled."
+      },
+      "metadata_source": "https://huggingface.co/api/models/unsloth/Qwen3.8-27B-GGUF?blobs=true",
+      "original_metadata_source": "https://huggingface.co/api/models/Qwen/Qwen3.8-27B?blobs=true",
+      "gguf_api_template": {
+        "utf8_sha256": "12827f24b742ea4e80cdc12dbcf9622227056b9f797252a3149263d4f9aaadce",
+        "size_bytes": 9993,
+        "evidence": "SHA-256 of template string exposed by the pinned Hugging Face model metadata API, not independently extracted from the GGUF binary."
+      },
+      "original_revision_caveat": "This is the current original repository revision pinned for configuration/template inspection. The exact upstream source revision used to produce the quantized weights was not established."
+    },
+    {
+      "id": "ministral_3_14b_reasoning_2512",
+      "gguf_repo": "mistralai/Ministral-3-14B-Reasoning-2512-GGUF",
+      "gguf_revision": "fe3b038f30334729263d860d5dadbaa34e0f2a18",
+      "gguf_architecture": "mistral3",
+      "original_repo": "mistralai/Ministral-3-14B-Reasoning-2512",
+      "original_revision": "51f9210f3cd20f3452a80d5819d15dc61cc50630",
+      "original_model_type": "mistral3",
+      "original_text_model_type": "ministral3",
+      "original_architecture": "Mistral3ForConditionalGeneration",
+      "files": [
+        {
+          "filename": "Ministral-3-14B-Reasoning-2512-Q4_K_M.gguf",
+          "size_bytes": 8239591488,
+          "sha256": "fe08ca2158cd7438211ec6a4e5256d31bc980f016e3f5b635fe91fe6848d461c",
+          "fit_16_gib": "Plausible at a bounded context and one slot; measure actual peak memory. Weights alone are 7.67 GiB.",
+          "size_gib": 7.6737,
+          "url": "https://huggingface.co/mistralai/Ministral-3-14B-Reasoning-2512-GGUF/resolve/fe3b038f30334729263d860d5dadbaa34e0f2a18/Ministral-3-14B-Reasoning-2512-Q4_K_M.gguf",
+          "hash_evidence": "Expected payload SHA-256 reported by the Hugging Face LFS metadata; payload not downloaded or locally verified."
+        }
+      ],
+      "original_files": [
+        {
+          "filename": "config.json",
+          "size_bytes": 1550,
+          "sha256": "b1897778395bb1795489a048ebde2e6d216eee21014ce9c18193d15f097454a6",
+          "url": "https://huggingface.co/mistralai/Ministral-3-14B-Reasoning-2512/resolve/51f9210f3cd20f3452a80d5819d15dc61cc50630/config.json",
+          "hash_evidence": "SHA-256 computed over downloaded small text file bytes."
+        },
+        {
+          "filename": "chat_template.jinja",
+          "size_bytes": 12207,
+          "sha256": "6b5044075f09f4daa57beebe2d989d9fbe67dea351f220e1a84e19ddc893f2c2",
+          "url": "https://huggingface.co/mistralai/Ministral-3-14B-Reasoning-2512/resolve/51f9210f3cd20f3452a80d5819d15dc61cc50630/chat_template.jinja",
+          "hash_evidence": "SHA-256 computed over downloaded small text file bytes."
+        },
+        {
+          "filename": "tokenizer_config.json",
+          "size_bytes": 198076,
+          "sha256": "f3a437d1214f6b61c8eae19d1256b0ebbf567793f6dcc1f63f4a30b829f85235",
+          "url": "https://huggingface.co/mistralai/Ministral-3-14B-Reasoning-2512/resolve/51f9210f3cd20f3452a80d5819d15dc61cc50630/tokenizer_config.json",
+          "hash_evidence": "SHA-256 computed over downloaded small text file bytes."
+        },
+        {
+          "filename": "tokenizer.json",
+          "size_bytes": 17078110,
+          "sha256": "577575622324b2e099e2648be26bdeb5e5815ffe66d7004e9e3ddbf421db6bf1",
+          "url": "https://huggingface.co/mistralai/Ministral-3-14B-Reasoning-2512/resolve/51f9210f3cd20f3452a80d5819d15dc61cc50630/tokenizer.json",
+          "hash_evidence": "Expected payload SHA-256 reported by the pinned official Hugging Face LFS metadata; payload not downloaded or locally verified."
+        },
+        {
+          "filename": "tekken.json",
+          "size_bytes": 16753777,
+          "sha256": "e29d19ea32eb7e26e6c0572d57cb7f9eca0f4420e0e0fe6ae1cf3be94da1c0d6",
+          "url": "https://huggingface.co/mistralai/Ministral-3-14B-Reasoning-2512/resolve/51f9210f3cd20f3452a80d5819d15dc61cc50630/tekken.json",
+          "hash_evidence": "Expected payload SHA-256 reported by the pinned official Hugging Face LFS metadata; payload not downloaded or locally verified."
+        },
+        {
+          "filename": "special_tokens_map.json",
+          "size_bytes": 147085,
+          "sha256": "486a0ad6c426d698f63d5332a78923f0529789f6f0a32fbc86433cd7dcc14693",
+          "url": "https://huggingface.co/mistralai/Ministral-3-14B-Reasoning-2512/resolve/51f9210f3cd20f3452a80d5819d15dc61cc50630/special_tokens_map.json",
+          "hash_evidence": "SHA-256 computed over downloaded small official file bytes; size matched pinned Hugging Face metadata."
+        }
+      ],
+      "thinking": {
+        "original_default": "reasoning model; template inserts thinking instructions",
+        "switch": null,
+        "control": "No enable_thinking switch found in original template. Preserve [THINK]/[/THINK] protocol; test native reasoning separately instead of describing forced budget-zero output as equivalent to a supported nonthinking mode."
+      },
+      "metadata_source": "https://huggingface.co/api/models/mistralai/Ministral-3-14B-Reasoning-2512-GGUF?blobs=true",
+      "original_metadata_source": "https://huggingface.co/api/models/mistralai/Ministral-3-14B-Reasoning-2512?blobs=true",
+      "gguf_api_template": {
+        "utf8_sha256": "39f03c383413f531fd302c06c7e982ad98c83f0657a8339ae25478ccb81fdcda",
+        "size_bytes": 6206,
+        "evidence": "SHA-256 of template string exposed by the pinned Hugging Face model metadata API, not independently extracted from the GGUF binary."
+      },
+      "original_revision_caveat": "This is the current original repository revision pinned for configuration/template inspection. The exact upstream source revision used to produce the quantized weights was not established."
+    },
+    {
+      "id": "qwen3_5_9b",
+      "gguf_repo": "unsloth/Qwen3.5-9B-GGUF",
+      "gguf_revision": "3885219b6810b007914f3a7950a8d1b469d598a5",
+      "gguf_architecture": "qwen35",
+      "original_repo": "Qwen/Qwen3.5-9B",
+      "original_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+      "original_model_type": "qwen3_5",
+      "original_architecture": "Qwen3_5ForConditionalGeneration",
+      "files": [
+        {
+          "filename": "Qwen3.5-9B-Q4_K_M.gguf",
+          "size_bytes": 5680522464,
+          "sha256": "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
+          "fit_16_gib": "Plausible at a bounded context and one slot; measure actual peak memory. Weights alone are 5.29 GiB.",
+          "size_gib": 5.2904,
+          "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5/Qwen3.5-9B-Q4_K_M.gguf",
+          "hash_evidence": "Expected payload SHA-256 reported by the Hugging Face LFS metadata; payload not downloaded or locally verified."
+        }
+      ],
+      "original_files": [
+        {
+          "filename": "config.json",
+          "size_bytes": 3126,
+          "sha256": "d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05",
+          "url": "https://huggingface.co/Qwen/Qwen3.5-9B/resolve/c202236235762e1c871ad0ccb60c8ee5ba337b9a/config.json",
+          "hash_evidence": "SHA-256 computed over downloaded small text file bytes."
+        },
+        {
+          "filename": "chat_template.jinja",
+          "size_bytes": 7756,
+          "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715",
+          "url": "https://huggingface.co/Qwen/Qwen3.5-9B/resolve/c202236235762e1c871ad0ccb60c8ee5ba337b9a/chat_template.jinja",
+          "hash_evidence": "SHA-256 computed over downloaded small text file bytes."
+        },
+        {
+          "filename": "tokenizer_config.json",
+          "size_bytes": 16710,
+          "sha256": "316230d6a809701f4db5ea8f8fc862bc3a6f3229c937c174e674ff3ca0a64ac8",
+          "url": "https://huggingface.co/Qwen/Qwen3.5-9B/resolve/c202236235762e1c871ad0ccb60c8ee5ba337b9a/tokenizer_config.json",
+          "hash_evidence": "SHA-256 computed over downloaded small text file bytes."
+        },
+        {
+          "filename": "tokenizer.json",
+          "size_bytes": 12807982,
+          "sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+          "url": "https://huggingface.co/Qwen/Qwen3.5-9B/resolve/c202236235762e1c871ad0ccb60c8ee5ba337b9a/tokenizer.json",
+          "hash_evidence": "Expected payload SHA-256 reported by the pinned official Hugging Face LFS metadata; payload not downloaded or locally verified."
+        }
+      ],
+      "thinking": {
+        "original_default": "enabled",
+        "gguf_api_default": "disabled",
+        "switch": "enable_thinking",
+        "control": "Set chat_template_kwargs.enable_thinking explicitly; original and GGUF API templates differ in their default."
+      },
+      "metadata_source": "https://huggingface.co/api/models/unsloth/Qwen3.5-9B-GGUF?blobs=true",
+      "original_metadata_source": "https://huggingface.co/api/models/Qwen/Qwen3.5-9B?blobs=true",
+      "gguf_api_template": {
+        "utf8_sha256": "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67",
+        "size_bytes": 7816,
+        "evidence": "SHA-256 of template string exposed by the pinned Hugging Face model metadata API, not independently extracted from the GGUF binary."
+      },
+      "original_revision_caveat": "This is the current original repository revision pinned for configuration/template inspection. The exact upstream source revision used to produce the quantized weights was not established."
+    }
+  ],
+  "runtime": {
+    "tag": "b11756",
+    "source_commit": "d80619397c2ba5cf1366c29f7d43699ca3a159b9",
+    "prerelease": true,
+    "filename": "llama-b11756-bin-ubuntu-x64.tar.gz",
+    "size_bytes": 22240705,
+    "sha256": "9def57d9e9b0149979a9ceba40896a4e2bf88c94734069a5567d2f487ceab551",
+    "release_metadata_source": "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/b11756",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11756/llama-b11756-bin-ubuntu-x64.tar.gz",
+    "hash_evidence": "Expected digest from official GitHub release asset metadata; binary not downloaded by this preflight.",
+    "support_status": "Official source contains qwen35 and mistral3 architecture dispatch and implementations. This verifies source-level support, not successful loading or inference of these specific GGUF payloads.",
+    "earliest_compatible_version": "Not established; b11756 is a verified source-level compatibility baseline.",
+    "sources": [
+      {
+        "path": "src/llama-arch.cpp",
+        "sha256": "1170b4b3b2c99642b4b6b65f245b56e3f9d5a1fb58d8c8dad1fabea52f29fc50",
+        "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/d80619397c2ba5cf1366c29f7d43699ca3a159b9/src/llama-arch.cpp"
+      },
+      {
+        "path": "src/models/qwen35.cpp",
+        "sha256": "d35673cbb968b062928481d70d3ffa555675fb90a3ddd0df482f9613547e544f",
+        "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/d80619397c2ba5cf1366c29f7d43699ca3a159b9/src/models/qwen35.cpp"
+      },
+      {
+        "path": "src/models/mistral3.cpp",
+        "sha256": "9bd6587f130cb55b34be3aa930341033889e85b01bc2b2d1b3fffea1de27a719",
+        "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/d80619397c2ba5cf1366c29f7d43699ca3a159b9/src/models/mistral3.cpp"
+      },
+      {
+        "path": "tools/server/README.md",
+        "sha256": "714c067bdbc49bde2735810fbff83eb2933b12c57d50f0012b61fcecb75a6a37",
+        "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/d80619397c2ba5cf1366c29f7d43699ca3a159b9/tools/server/README.md"
+      }
+    ],
+    "controls": {
+      "server": [
+        "--jinja",
+        "--chat-template-file <model-specific pinned template>",
+        "--reasoning-format deepseek",
+        "--reasoning-budget <explicit token budget>",
+        "--ctx-size 4096",
+        "--parallel 1"
+      ],
+      "request": "chat_template_kwargs accepts enable_thinking; output parsing is separate from thinking mode. Reasoning format only controls extraction. Record prompt, output, and reasoning token counts separately.",
+      "template_policy": "Never reuse the Minerva template. Pin a model-specific template and its hash. The current original template can differ from the template embedded at quantization time; record which was used.",
+      "comparison_policy": "Use text only; no mmproj download is necessary. Keep context, slot count, sampling, seeds, input prompt bytes, budgets, and timeout explicit."
+    },
+    "current_runnable_release_observed": {
+      "tag": "b11785",
+      "source_commit": "8baabd53b77d1c48c6ef8d3b620436292f3f6231",
+      "prerelease": true,
+      "filename": "llama-b11785-bin-ubuntu-x64.tar.gz",
+      "size_bytes": 22291571,
+      "sha256": "53ec89f712eafc3985367f5b9412b6fe93f8448e9668b580729cca5136863c2f",
+      "published_at": "2026-10-21T06:33:35Z"
+    },
+    "recommendation": "Retain pinned b11756 for this comparison because it has source-level architecture support. Do not label these b releases stable; they are flagged prerelease.",
+    "stable_release_observed": {
+      "tag": "v0.7.0",
+      "prerelease": false,
+      "published_at": "2026-10-15T17:13:19Z",
+      "assets": [
+        {
+          "filename": "nightly-tag.txt",
+          "size_bytes": 7,
+          "sha256": "0bbf7c261e41e777ad8d70f2c83f8d7dd2ae4d7e41a9b6f26926fbc902209c70"
+        }
+      ],
+      "conclusion": "Latest non-prerelease has no Linux CPU binary asset. Do not treat its tag as a downloadable runtime."
+    }
+  },
+  "resource_gate": {
+    "local_session_memory_limit_gib": 8,
+    "public_runner_nominal_memory_gb": 16,
+    "requirements": [
+      "Check actual MemAvailable, cgroup memory.max, CPU instruction support, free disk, and process limits before downloading.",
+      "Download and run one candidate at a time; avoid duplicated Hugging Face and manual download caches.",
+      "A weight file size is a lower bound, not an inference memory estimate. Runtime buffers, attention cache, recurrent state, OS memory, and context matter.",
+      "Record startup, prompt processing, generation, peak resident memory, and timeouts separately.",
+      "Avoid relying on swap or repeated mmap disk faults as evidence of acceptable classroom performance."
+    ],
+    "local_8_gib_fit": "The 27B candidates and Ministral Q4_K_M are unsuitable. Qwen3.5-9B Q4_K_M has limited headroom and requires an observed memory gate; no claim of local fit or inference success is made.",
+    "runner_16_gb_fit": "Qwen3.5-9B and Ministral Q4_K_M are plausible with bounded context and a single slot. Qwen3.8 UD-IQ4_XS is marginal and UD-Q4_K_M is impractical. Actual measured memory and available disk are required."
+  }
+}

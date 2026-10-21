@@ -2,7 +2,7 @@ name: Collaudo UAllera
 
 on:
   push:
-    branches-ignore: [feature/minerva-runtime, feature/minerva-calibrazione, feature/minerva-diagnostica]
+    branches-ignore: [feature/minerva-runtime, feature/minerva-calibrazione, feature/minerva-diagnostica, experiment/confronto-modelli-locali]
   pull_request:
   workflow_dispatch:
 

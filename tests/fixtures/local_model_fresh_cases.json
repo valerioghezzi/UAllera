@@ -1,0 +1,128 @@
+[
+  {
+    "id": "F1.01",
+    "part": 1,
+    "kind": "error_group_mean_invariance",
+    "criterion": "La sola ordinalità garantisce che il confronto fra le medie dei codici di due gruppi resti invariato dopo ogni ricodifica strettamente crescente?",
+    "text": "Poiché la scala è ordinale, il gruppo con media dei codici maggiore resta necessariamente lo stesso dopo qualsiasi ricodifica strettamente crescente delle categorie.",
+    "expected_assessment": "errata",
+    "rationale": "Ordinality preserves individual order, not comparisons of arithmetic means under arbitrary increasing recodings. For example, A=(1,1,3) and B=(2,2,2) reverse their mean ordering when 3 is recoded as 100."
+  },
+  {
+    "id": "F1.02",
+    "part": 1,
+    "kind": "correct_conditional_order",
+    "criterion": "Spiega se la ricodifica crescente da 1, 2, 3 a 10, 11, 90 conserva l’ordine e se tale conservazione richieda intervalli numerici uguali.",
+    "text": "Se ricodifico le tre categorie ordinate da 1, 2, 3 a 10, 11, 90, una risposta nella terza categoria resta superiore a una nella seconda. Questa conservazione dell’ordine non richiede intervalli numerici uguali.",
+    "expected_assessment": "coerente",
+    "rationale": "The specified mapping is strictly increasing. It preserves category ordering despite unequal numerical gaps and answers both explicit questions."
+  },
+  {
+    "id": "F2.01",
+    "part": 2,
+    "kind": "error_filter_boolean",
+    "criterion": "Per includere soltanto persone maggiorenni che abbiano anche dato il consenso, è corretta una condizione con età almeno 18 OPPURE consenso uguale a sì?",
+    "text": "Voglio includere soltanto persone maggiorenni che abbiano dato il consenso. Imposto età almeno 18 OPPURE consenso uguale a sì: così nessun minorenne con consenso può entrare.",
+    "expected_assessment": "errata",
+    "rationale": "The disjunction admits a minor with consent, contradicting the explicit exclusion claim. The intended rule requires both conditions."
+  },
+  {
+    "id": "F2.02",
+    "part": 2,
+    "kind": "partial_filter_without_range_check",
+    "criterion": "Descrivi sia la regola di inclusione per età e consenso sia il controllo delle risposte fuori dall’intervallo ammesso da 1 a 5.",
+    "text": "Ho mantenuto soltanto i record con età almeno 18 anni e consenso uguale a sì; gli altri sono esclusi dal calcolo.",
+    "expected_assessment": "incompleta",
+    "rationale": "The inclusion rule is explicit and correct, but the requested check for values outside 1 through 5 is entirely absent. No false statistical claim is made."
+  },
+  {
+    "id": "F3.01",
+    "part": 3,
+    "kind": "error_dispersion_uncertainty",
+    "criterion": "La deviazione standard descrive la dispersione dei punteggi individuali o l’errore standard della media campionaria?",
+    "text": "La deviazione standard del punteggio è 12: questo numero è l’errore standard della media campionaria, non la dispersione fra i punteggi delle persone.",
+    "expected_assessment": "errata",
+    "rationale": "The text explicitly substitutes the standard error of the sample mean for the standard deviation and denies the descriptive role of the latter."
+  },
+  {
+    "id": "F3.02",
+    "part": 3,
+    "kind": "nonanswer_file_pointer",
+    "criterion": "Descrivi centro e dispersione della distribuzione dei punteggi.",
+    "text": "Il commento si trova nel file separato descrittive_finali.txt, non allegato a questo testo.",
+    "expected_assessment": "non_valutabile",
+    "rationale": "An unavailable file pointer supplies no proposition about center or dispersion. The isolated text cannot establish the contents of the referenced file."
+  },
+  {
+    "id": "F4.01",
+    "part": 4,
+    "kind": "error_percentile_accuracy",
+    "criterion": "Il percentile 80 indica una posizione nella distribuzione di riferimento oppure una percentuale di risposte corrette?",
+    "text": "Il percentile 80 significa che la persona ha risposto correttamente all’80 per cento delle domande, indipendentemente dalla distribuzione dei punteggi del riferimento.",
+    "expected_assessment": "errata",
+    "rationale": "A percentile expresses relative standing in a reference distribution. It does not specify the fraction of test items answered correctly."
+  },
+  {
+    "id": "F4.02",
+    "part": 4,
+    "kind": "correct_zero_variance_condition",
+    "criterion": "La formula z = (punteggio meno media) diviso deviazione standard produce un valore definito quando tutti i punteggi del riferimento sono uguali?",
+    "text": "Se tutti i punteggi del riferimento sono uguali, la loro deviazione standard è zero. La formula di z richiede allora una divisione per zero e non produce un valore definito.",
+    "expected_assessment": "coerente",
+    "rationale": "For a constant reference distribution the standard deviation is zero. The stated formula is undefined, including when the numerator is also zero."
+  },
+  {
+    "id": "F5.01",
+    "part": 5,
+    "kind": "error_observational_causality",
+    "criterion": "In un confronto osservazionale, con scelta spontanea del corso e senza controllo dei confondenti, p = 0,001 dimostra un effetto causale del corso sul punteggio?",
+    "text": "Le persone hanno scelto spontaneamente se frequentare il corso; non ho controllato possibili confondenti. Poiché il confronto dei punteggi dà p = 0,001, la frequenza del corso ha certamente causato la differenza.",
+    "expected_assessment": "errata",
+    "rationale": "A small p value does not resolve self-selection or confounding. The explicit observational design cannot identify the asserted causal effect from this comparison alone."
+  },
+  {
+    "id": "F5.02",
+    "part": 5,
+    "kind": "partial_effect_without_causal_limit",
+    "criterion": "Interpreta d di Cohen pari a 0,60 e chiarisci se il solo confronto osservazionale fra gruppi consenta una conclusione causale.",
+    "text": "Il d di Cohen è 0,60: la differenza fra le medie equivale a 0,60 deviazioni standard, secondo la standardizzazione adottata.",
+    "expected_assessment": "incompleta",
+    "rationale": "The standardized magnitude is interpreted correctly. The explicitly requested causal limit of the observational comparison is omitted, without a causal claim being asserted."
+  },
+  {
+    "id": "F6.01",
+    "part": 6,
+    "kind": "error_squared_correlation_person_fraction",
+    "criterion": "Con r = 0,50, r al quadrato pari a 0,25 descrive la quota di persone per cui vale la relazione oppure, nella regressione lineare semplice con intercetta, una proporzione di varianza?",
+    "text": "La correlazione è 0,50, quindi r al quadrato è 0,25. Ciò dimostra che la relazione esiste esattamente per il 25 per cento delle persone e non per le altre.",
+    "expected_assessment": "errata",
+    "rationale": "Squaring 0.50 correctly gives 0.25, but this is not a proportion of people who have a relationship. In the stated regression setting it is a proportion of outcome variance accounted for by the fitted line."
+  },
+  {
+    "id": "F6.02",
+    "part": 6,
+    "kind": "correct_zero_linear_nonlinear",
+    "criterion": "Per le tre coppie (-1, 1), (0, 0), (1, 1), una correlazione di Pearson nulla esclude ogni dipendenza tra X e Y?",
+    "text": "Per queste tre coppie la correlazione di Pearson è zero, ma Y coincide con X al quadrato. Non manca ogni dipendenza: manca un andamento lineare rilevato da questo coefficiente.",
+    "expected_assessment": "coerente",
+    "rationale": "Both variables have nonzero variance and the covariance is zero by symmetry. Nevertheless Y=X squared deterministically, so a zero Pearson correlation does not exclude nonlinear dependence."
+  },
+  {
+    "id": "F7.01",
+    "part": 7,
+    "kind": "error_individual_sem_divided_by_n",
+    "criterion": "Con deviazione standard 10 e omega 0,84, SEM = DS per radice di (1 meno omega) vale 4: dividere ancora per radice di 100 è corretto per l’incertezza del singolo punteggio?",
+    "text": "Con deviazione standard 10 e omega 0,84 ottengo inizialmente SEM = 4. Siccome il campione contiene 100 persone, l’errore del singolo punteggio diventa 4 diviso radice di 100, cioè 0,4.",
+    "expected_assessment": "errata",
+    "rationale": "The initial individual measurement SEM is 4. A further division by the square root of sample size changes the target to an averaging operation and is not the stated individual-score SEM."
+  },
+  {
+    "id": "F7.02",
+    "part": 7,
+    "kind": "nonanswer_formatting_request",
+    "criterion": "Spiega che cosa rappresenta l’errore standard di misura del singolo punteggio.",
+    "text": "Per questa sezione preferisco un carattere più grande e una tabella con il bordo blu.",
+    "expected_assessment": "non_valutabile",
+    "rationale": "A formatting preference contains no claim about individual measurement uncertainty. There is no partial disciplinary answer to assess."
+  }
+]
