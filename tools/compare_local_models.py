@@ -1,7 +1,10 @@
 """Development-only, pinned CPU model comparison; never imported by the app.
 
 Prepare once, run --part 1 through --part 7, then --aggregate. Each part has
-an inclusive 840-second deadline, including startup. Failed protocol checks
+an inclusive deadline including startup: original uses 840 seconds and 512
+reasoning tokens; the separate budget128 profile uses 780 seconds and 128
+reasoning tokens, with fresh cases first. The heldout128 profile uses the same
+generation settings for only 14 fresh cases, with 180 seconds per part. Failed protocol checks
 are infrastructure failures, never semantic predictions. All cases are public
 synthetic data. Dependencies for independent tokenizer oracles are development
 only: transformers and mistral-common (no model tensors are loaded).
@@ -26,6 +29,7 @@ import urllib.error
 import threading
 import codecs
 from importlib.metadata import version, PackageNotFoundError
+from dataclasses import dataclass
 
 import time
 
@@ -44,6 +48,33 @@ REASONING_TOKENS = 512
 REQUEST_SECONDS = 180
 PART_SECONDS = 840
 PROFILE = 'native-chat-official-token-parity-1'
+
+
+@dataclass(frozen=True)
+class ComparisonProfile:
+    key: str
+    version: str
+    reasoning_tokens: int
+    request_seconds: int
+    part_seconds: int
+    fresh_first: bool = False
+    case_scope: str = 'all'
+
+
+PROFILES = {
+    'original': ComparisonProfile('original', PROFILE, REASONING_TOKENS, REQUEST_SECONDS, PART_SECONDS),
+    'budget128': ComparisonProfile('budget128', PROFILE + '-budget128', 128, 300, 780, True),
+    'heldout128': ComparisonProfile('heldout128', PROFILE + '-heldout128', 128, 300, 180, True, 'fresh'),
+}
+ORIGINAL = PROFILES['original']
+
+
+def protocol_settings(profile=ORIGINAL):
+    return {'profile_key': profile.key, 'profile_version': profile.version,
+            'context_tokens': CONTEXT_TOKENS, 'output_tokens': OUTPUT_TOKENS, 'case_scope': profile.case_scope,
+            'reasoning_budget': profile.reasoning_tokens, 'temperature': 0, 'seed': 0,
+            'per_request_seconds': profile.request_seconds, 'per_part_seconds': profile.part_seconds,
+            'case_order': 'fresh_then_baseline_within_part' if profile.fresh_first else 'baseline_then_fresh_within_part'}
 
 
 class ProtocolError(ValueError):
@@ -83,10 +114,15 @@ def load_cases(fresh_path):
     return cases
 
 
-def select_cases(cases, part):
+def profile_cases(cases, profile=ORIGINAL):
+    return [case for case in cases if profile.case_scope == 'all' or case.get('dataset') == 'fresh']
+
+
+def select_cases(cases, part, profile=ORIGINAL):
     if type(part) is not int or part not in range(1, 8):
         raise ValueError('Part must be 1 through 7')
-    return [c for c in cases if c['part'] == part]
+    selected = [c for c in profile_cases(cases, profile) if c['part'] == part]
+    return sorted(selected, key=lambda c: c.get('dataset') != 'fresh') if profile.fresh_first else selected
 
 
 def prepare_case(case, model):
@@ -106,10 +142,10 @@ def prepare_case(case, model):
     return spans, payload
 
 
-def execute_case(case, model, post, oracle):
+def execute_case(case, model, post, oracle, profile=ORIGINAL):
     """Save actual request/response bodies; the HTTP capability lives elsewhere."""
     row = dict(case, status='infrastructure_error', observed=None, inference_attempted=False,
-               native_reasoning_observed=False, exchanges=[], profile=PROFILE)
+               native_reasoning_observed=False, exchanges=[], profile=profile.version, protocol=protocol_settings(profile))
     started = time.monotonic()
     def exchange(path, payload):
         record = {'path': path, 'request': payload}
@@ -201,14 +237,18 @@ def summarize(plan, rows):
     return result
 
 
-def freeze_inputs(paths, output):
+def freeze_inputs(paths, output, protocol=None):
     output = Path(output); output.mkdir(parents=True, exist_ok=True)
     hashes = {key: hashlib.sha256(Path(path).read_bytes()).hexdigest() for key, path in paths.items()}
+    if protocol is not None:
+        hashes['protocol'] = hashlib.sha256(canonical(protocol)).hexdigest()
     checkpoint = output / 'input_hashes.json'
     if checkpoint.exists() and json.loads(checkpoint.read_text()) != hashes:
         raise ValueError('Frozen comparison input changed')
     if not checkpoint.exists():
         write_json(checkpoint, hashes)
+        if protocol is not None:
+            write_json(output / 'frozen_protocol.json', protocol)
         for key, path in paths.items():
             (output / ('frozen_' + key + Path(path).suffix)).write_bytes(Path(path).read_bytes())
     return hashes
@@ -323,9 +363,10 @@ def official_oracle(model, original):
 
 class OwnedEngine:
     """Loopback-only HTTP with an in-memory capability and owned cleanup."""
-    def __init__(self, executable, model_path, template, model, output, deadline):
+    def __init__(self, executable, model_path, template, model, output, deadline, profile=ORIGINAL):
         self.executable, self.model_path, self.template = executable, model_path, template
         self.model, self.output, self.deadline = model, Path(output), deadline
+        self.profile = profile
         self.api_key = secrets.token_urlsafe(32)
         self.server = None
         self.events = []
@@ -341,7 +382,7 @@ class OwnedEngine:
                    '--ctx-size', str(CONTEXT_TOKENS), '--parallel', '1', '--threads', str(threads),
                    '--threads-batch', str(threads), '--alias', self.model, '--no-warmup', '--jinja',
                    '--chat-template-file', str(self.template), '--reasoning-format', 'deepseek',
-                   '--reasoning-budget', str(REASONING_TOKENS), '--offline', '--no-webui', '--api-key', self.api_key]
+                   '--reasoning-budget', str(self.profile.reasoning_tokens), '--offline', '--no-webui', '--api-key', self.api_key]
         try:
             # Native argv and exception reprs can contain the capability. Drain
             # the pipe through a bounded redactor before any bytes reach disk.
@@ -353,9 +394,11 @@ class OwnedEngine:
             self.wait_ready()
             self.events.append({'event': 'ready', 'seconds': round(time.monotonic() - started, 3), 'threads': threads})
             return self
-        except Exception:
+        except Exception as error:
             self.events.append({'event': 'startup_failed', 'exit_code': self.server.process.poll() if self.server else None})
             self.stop()
+            if isinstance(error, ProtocolError) and str(error) == 'part_deadline_reached':
+                raise ProtocolError('part_deadline_reached') from None
             raise ProtocolError('owned_engine_startup_failed') from None
 
     def read_native_log(self):
@@ -399,7 +442,9 @@ class OwnedEngine:
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
             raise ProtocolError('part_deadline_reached')
-        timeout = min(timeout or REQUEST_SECONDS, REQUEST_SECONDS, remaining)
+        request_limit = min(timeout or self.profile.request_seconds, self.profile.request_seconds)
+        deadline_limited = remaining <= request_limit
+        timeout = min(request_limit, remaining)
         body = None if payload is None else canonical(payload)
         request = urllib.request.Request(self.base_url + path, data=body,
                                          headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + self.api_key})
@@ -421,9 +466,9 @@ class OwnedEngine:
                 raise ProtocolError('native_response_contains_capability')
             return value
         except TimeoutError:
-            raise ProtocolError('request_timeout') from None
+            raise ProtocolError('part_deadline_reached' if deadline_limited else 'request_timeout') from None
         except urllib.error.URLError as error:
-            code = 'request_timeout' if isinstance(error.reason, TimeoutError) else 'native_http_error'
+            code = ('part_deadline_reached' if deadline_limited else 'request_timeout') if isinstance(error.reason, TimeoutError) else 'native_http_error'
             raise ProtocolError(code) from None
         finally:
             self.sample_memory()
@@ -438,9 +483,14 @@ class OwnedEngine:
                 models = self.request('/v1/models', timeout=min(2, max(.01, deadline-time.monotonic()))) if health.get('status') == 'ok' else {}
                 if any(row.get('id') == self.model for row in models.get('data', [])):
                     return
+            except ProtocolError as error:
+                if str(error) == 'part_deadline_reached':
+                    raise
             except Exception:
                 pass
             time.sleep(.25)
+        if time.monotonic() >= self.deadline:
+            raise ProtocolError('part_deadline_reached')
         raise ProtocolError('owned_engine_readiness_timeout')
 
     def stop(self):
@@ -458,25 +508,25 @@ class OwnedEngine:
         return False
 
 
-def aggregate_parts(cases, output, model, hashes):
+def aggregate_parts(cases, output, model, hashes, profile=ORIGINAL):
+    cases = profile_cases(cases, profile)
     output = Path(output); rows = []; present = []; failures = []
     for part in range(1, 8):
         path = output / f'part_{part}.json'
         if not path.exists(): continue
         value = json.loads(path.read_text(encoding='utf-8'))
-        if value.get('model') != model or value.get('part') != part or value.get('input_hashes') != hashes:
+        if (value.get('model') != model or value.get('part') != part or value.get('input_hashes') != hashes or
+                value.get('profile') != profile.version):
             raise ValueError('Part model, identity, or frozen input hashes differ')
-        if any(c.get('part') != part for c in value['cases']):
+        if any(c.get('part') != part or c.get('profile') != profile.version for c in value['cases']):
             raise ValueError('Part contains a foreign case')
         rows += value['cases']; present.append(part)
         if value.get('failure_code'): failures.append({'part': part, 'code': value['failure_code']})
     result = summarize(cases, rows)
-    result.update(model=model, profile=PROFILE, input_hashes=hashes, present_parts=present,
+    result.update(model=model, profile=profile.version, input_hashes=hashes, present_parts=present,
                   missing_parts=[p for p in range(1, 8) if p not in present], failures=failures,
                   missing_case_ids=[c['id'] for c in cases if c['id'] not in {r['id'] for r in rows}],
-                  protocol={'context_tokens': CONTEXT_TOKENS, 'output_tokens': OUTPUT_TOKENS,
-                            'reasoning_budget': REASONING_TOKENS, 'temperature': 0, 'seed': 0,
-                            'per_request_seconds': REQUEST_SECONDS, 'per_part_seconds': PART_SECONDS},
+                  protocol=protocol_settings(profile),
                   limits=['Public synthetic cases with assistant-authored labels; not independent external validation.',
                           'Missing, invalid, and infrastructure outcomes are not model predictions.',
                           'Agreement and error recall over planned cases retain all planned denominators.',
@@ -486,13 +536,13 @@ def aggregate_parts(cases, output, model, hashes):
     return result
 
 
-def run_part(manifest, model, assets, output, cases, part, hashes):
+def run_part(manifest, model, assets, output, cases, part, hashes, profile=ORIGINAL):
     output = Path(output); path = output / f'part_{part}.json'
     if path.exists():
         raise ValueError('Part already exists; use a new output directory to rerun')
-    deadline = time.monotonic() + PART_SECONDS
-    selected = select_cases(cases, part)
-    result = {'model': model, 'part': part, 'input_hashes': hashes, 'profile': PROFILE,
+    deadline = time.monotonic() + profile.part_seconds
+    selected = select_cases(cases, part, profile)
+    result = {'model': model, 'part': part, 'input_hashes': hashes, 'profile': profile.version, 'protocol': protocol_settings(profile),
               'planned': len(selected), 'cases': [], 'status': 'starting'}
     def save():
         result['summary'] = summarize(selected, result['cases'])
@@ -508,7 +558,7 @@ def run_part(manifest, model, assets, output, cases, part, hashes):
         oracle = official_oracle(model, original)
         part_output = output / f'part_{part}_engine'
         part_output.mkdir(parents=True, exist_ok=True)
-        with OwnedEngine(executable, weight, original / 'chat_template.jinja', model, part_output, deadline) as engine:
+        with OwnedEngine(executable, weight, original / 'chat_template.jinja', model, part_output, deadline, profile) as engine:
             result['resources_before_inference'] = resource_guard(assets, 0)
             result['runtime_props'] = engine.request('/props')
             for index, case in enumerate(selected, 1):
@@ -517,7 +567,7 @@ def run_part(manifest, model, assets, output, cases, part, hashes):
                     break
                 result['active_case'] = case['id']; save()
                 print(f"Part {part}: case {index}/{len(selected)} {case['id']}", flush=True)
-                row = execute_case(case, model, engine.request, oracle)
+                row = execute_case(case, model, engine.request, oracle, profile)
                 result['cases'].append(row); result.pop('active_case', None)
                 result['peak_rss_bytes'] = engine.peak_rss_bytes
                 save()
@@ -527,8 +577,8 @@ def run_part(manifest, model, assets, output, cases, part, hashes):
                     break
             result['status'] = 'complete' if len(result['cases']) == len(selected) else 'partial'
     except ProtocolError as error:
-        result.update(status='infrastructure_error', failure_code=str(error))
-        fatal = True
+        result.update(status='partial' if str(error) == 'part_deadline_reached' else 'infrastructure_error', failure_code=str(error))
+        fatal = str(error) != 'part_deadline_reached'
     except Exception:
         result.update(status='infrastructure_error', failure_code='part_setup_or_execution_failed')
         fatal = True
@@ -543,6 +593,7 @@ def main(argv=None):
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--fresh', type=Path, required=True)
     parser.add_argument('--model', choices=MODEL_KEYS, required=True)
+    parser.add_argument('--profile', choices=tuple(PROFILES), default='original')
     parser.add_argument('--assets', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     modes = parser.add_mutually_exclusive_group(required=True)
@@ -550,27 +601,28 @@ def main(argv=None):
     modes.add_argument('--part', type=int, choices=range(1, 8))
     modes.add_argument('--aggregate', action='store_true')
     args = parser.parse_args(argv)
+    profile = PROFILES[args.profile]
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=True)
     try:
         hashes = freeze_inputs({'manifest': args.manifest, 'fresh': args.fresh,
                                 'baseline': Path(__file__).resolve().parents[1] / 'jamovi_audit' / 'validation_cases.py',
-                                'shared_task': Path(mr.__file__), 'runner': Path(__file__)}, output)
-        cases = load_cases(args.fresh)
+                                'shared_task': Path(mr.__file__), 'runner': Path(__file__)}, output, protocol_settings(profile))
+        cases = profile_cases(load_cases(args.fresh), profile)
         write_json(output / 'planned_cases.json', cases)
         manifest = json.loads(args.manifest.read_text(encoding='utf-8'))
         if args.aggregate:
-            summary = aggregate_parts(cases, output, args.model, hashes)
+            summary = aggregate_parts(cases, output, args.model, hashes, profile)
             print('Comparison summary:', json.dumps({k: summary[k] for k in ('status', 'planned', 'attempted', 'valid', 'matching_labels', 'missing')}), flush=True)
             return 0
         dependencies = {}
         for package in ('transformers', 'mistral-common', 'tokenizers', 'jinja2'):
             try: dependencies[package] = version(package)
             except PackageNotFoundError: dependencies[package] = None
-        write_json(output / 'environment.json', {'python': sys.version, 'dependencies': dependencies, 'model': args.model})
+        write_json(output / 'environment.json', {'python': sys.version, 'dependencies': dependencies, 'model': args.model, 'protocol': protocol_settings(profile)})
         if args.prepare:
             prepare_assets(manifest, args.model, args.assets.resolve(), output)
             return 0
-        return run_part(manifest, args.model, args.assets.resolve(), output, cases, args.part, hashes)
+        return run_part(manifest, args.model, args.assets.resolve(), output, cases, args.part, hashes, profile)
     except Exception:
         # Never stringify subprocess/network exceptions or HTTP authorization.
         write_json(output / 'execution_error.json', {'status': 'infrastructure_error', 'code': 'comparison_setup_failed',

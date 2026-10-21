@@ -272,4 +272,150 @@ class InfrastructureTests(unittest.TestCase):
             self.assertIn('actual loader error', saved)
 
 
+class DeadlineAndProfileTests(unittest.TestCase):
+    def test_socket_timeout_at_part_limit_is_budget_exhaustion_not_request_failure(self):
+        for wrapped in (False, True):
+            with self.subTest(wrapped=wrapped):
+                engine = comparison.OwnedEngine(Path('/fake'), Path('/fake'), Path('/fake'), 'test', Path('/unused'), 106)
+                engine.base_url = 'http://127.0.0.1:1'
+                error = TimeoutError('private timeout details')
+                if wrapped: error = comparison.urllib.error.URLError(error)
+                opener = SimpleNamespace(open=lambda *args, **kwargs: (_ for _ in ()).throw(error))
+                with patch.object(comparison.time, 'monotonic', return_value=50), patch.object(comparison.urllib.request, 'build_opener', return_value=opener):
+                    with self.assertRaisesRegex(comparison.ProtocolError, '^part_deadline_reached$'):
+                        engine.request('/v1/chat/completions', {})
+
+    def test_full_request_timeout_stays_fatal(self):
+        engine = comparison.OwnedEngine(Path('/fake'), Path('/fake'), Path('/fake'), 'test', Path('/unused'), 1000)
+        engine.base_url = 'http://127.0.0.1:1'
+        opener = SimpleNamespace(open=lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError()))
+        with patch.object(comparison.time, 'monotonic', return_value=50), patch.object(comparison.urllib.request, 'build_opener', return_value=opener):
+            with self.assertRaisesRegex(comparison.ProtocolError, '^request_timeout$'):
+                engine.request('/v1/chat/completions', {})
+
+    def test_part_budget_records_partial_and_allows_following_parts(self):
+        case = dict(id='x', part=1, text='Public text', dataset='baseline', expected_assessment='coerente')
+        row = dict(case, status='infrastructure_error', error_code='part_deadline_reached', observed=None, inference_attempted=True)
+        class Engine:
+            peak_rss_bytes = 0
+            def __init__(self, *args, **kwargs): pass
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def request(self, *args, **kwargs): return {}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(comparison, 'asset_plan', return_value=({}, [], root/'server', root/'weights', root)), patch.object(comparison, 'unpack_runtime'), patch.object(comparison, 'official_oracle', return_value=lambda payload: [1]), patch.object(comparison, 'OwnedEngine', Engine), patch.object(comparison, 'resource_guard', return_value={}), patch.object(comparison, 'execute_case', return_value=row):
+                # A tiny archive placeholder is enough for the mocked extraction.
+                # The actual run validates every real pinned asset first.
+                with patch.object(comparison, 'asset_plan', return_value=({}, [(root/'archive', SimpleNamespace())], root/'server', root/'weights', root)), patch.object(comparison, '_valid_asset', return_value=True):
+                    code = comparison.run_part({}, 'qwen3_5_9b', root, root/'out', [case], 1, {})
+            saved = json.loads((root/'out/part_1.json').read_text())
+            self.assertEqual(code, 0)
+            self.assertEqual(saved['failure_code'], 'part_deadline_reached')
+            self.assertEqual(saved['summary']['infrastructure_errors'], 1)
+            self.assertIsNone(saved['cases'][0]['observed'])
+
+    def test_profiles_keep_original_limits_and_prioritize_fresh_only_for_budget128(self):
+        self.assertTrue(hasattr(comparison, 'PROFILES'), 'Explicit comparison profiles are missing')
+        old, new = comparison.PROFILES['original'], comparison.PROFILES['budget128']
+        self.assertEqual((old.reasoning_tokens, old.request_seconds, old.part_seconds), (512, 180, 840))
+        self.assertEqual((new.reasoning_tokens, new.request_seconds, new.part_seconds), (128, 300, 780))
+        cases = [dict(id=str(n), part=1, dataset='fresh' if n >= 10 else 'baseline') for n in range(12)]
+        self.assertEqual(comparison.select_cases(cases, 1, old), cases)
+        ordered = comparison.select_cases(cases, 1, new)
+        self.assertEqual([c['dataset'] for c in ordered[:2]], ['fresh', 'fresh'])
+        self.assertEqual({c['id'] for c in ordered}, {c['id'] for c in cases})
+        self.assertEqual(cases[0]['id'], '0')
+
+    def test_readiness_distinguishes_part_budget_from_its_own_startup_limit(self):
+        for part_deadline, code in ((180, 'part_deadline_reached'), (840, 'owned_engine_readiness_timeout')):
+            with self.subTest(part_deadline=part_deadline):
+                engine = comparison.OwnedEngine(Path('/fake'), Path('/fake'), Path('/fake'), 'test', Path('/unused'), part_deadline)
+                with patch.object(comparison.time, 'monotonic', side_effect=[0, 180, 180]):
+                    with self.assertRaisesRegex(comparison.ProtocolError, '^'+code+'$'):
+                        engine.wait_ready()
+
+    def test_part_budget_during_owned_startup_cleans_up_and_keeps_later_parts_enabled(self):
+        case = dict(id='F1.1', part=1, text='Public text', dataset='fresh', expected_assessment='coerente')
+        class Process:
+            stdout = io.BytesIO()
+            def poll(self): return 0
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(comparison, 'asset_plan', return_value=({}, [(root/'archive', SimpleNamespace())], root/'server', root/'weights', root)), patch.object(comparison, '_valid_asset', return_value=True), patch.object(comparison, 'unpack_runtime'), patch.object(comparison, 'official_oracle', return_value=lambda payload: [1]), patch.object(comparison.subprocess, 'Popen', return_value=Process()), patch.object(comparison.OwnedEngine, 'wait_ready', side_effect=comparison.ProtocolError('part_deadline_reached')):
+                code = comparison.run_part({}, 'ministral_3_14b_reasoning_2512', root, root/'out', [case], 1, {}, comparison.PROFILES['heldout128'])
+            saved = json.loads((root/'out/part_1.json').read_text())
+            lifecycle = json.loads((root/'out/part_1_engine/engine_lifecycle.json').read_text())
+            self.assertEqual(code, 0)
+            self.assertEqual(saved['failure_code'], 'part_deadline_reached')
+            self.assertEqual(saved['status'], 'partial')
+            self.assertEqual(saved['summary']['missing'], 1)
+            self.assertTrue(lifecycle['events'][-1]['cleanup_complete'])
+
+    def test_heldout128_plans_only_fourteen_fresh_cases_with_common_generation_settings(self):
+        self.assertIn('heldout128', comparison.PROFILES, 'The bounded fresh-only profile is missing')
+        profile = comparison.PROFILES['heldout128']
+        self.assertEqual((profile.reasoning_tokens, profile.request_seconds, profile.part_seconds), (128, 300, 180))
+        cases = [dict(id=f'B{p}.{n}', part=p, dataset='baseline', text='Public text', expected_assessment='coerente') for p in range(1, 8) for n in range(10)]
+        cases += [dict(id=f'F{p}.{n}', part=p, dataset='fresh', text='Public text', expected_assessment='coerente') for p in range(1, 8) for n in range(2)]
+        selected = comparison.profile_cases(cases, profile)
+        self.assertEqual(len(selected), 14)
+        self.assertTrue(all(c['dataset'] == 'fresh' for c in selected))
+        self.assertEqual(len(comparison.select_cases(cases, 1, profile)), 2)
+        with tempfile.TemporaryDirectory() as temporary:
+            summary = comparison.aggregate_parts(cases, Path(temporary), 'ministral_3_14b_reasoning_2512', {}, profile)
+        self.assertEqual(summary['planned'], 14)
+        self.assertEqual(summary['missing'], 14)
+        self.assertEqual(summary['by_dataset']['fresh']['planned'], 14)
+        self.assertEqual(summary['by_dataset']['baseline']['planned'], 0)
+        self.assertEqual(summary['protocol']['case_scope'], 'fresh')
+        full = comparison.protocol_settings(comparison.PROFILES['budget128'])
+        for key in ('reasoning_budget', 'per_request_seconds', 'context_tokens', 'output_tokens', 'temperature', 'seed'):
+            self.assertEqual(summary['protocol'][key], full[key])
+        self.assertEqual(len(cases), 84)
+
+    def test_budget128_controls_actual_socket_limit_and_native_reasoning_flag(self):
+        self.assertTrue(hasattr(comparison, 'PROFILES'), 'Explicit comparison profiles are missing')
+        profile = comparison.PROFILES['budget128']
+        engine = comparison.OwnedEngine(Path('/fake'), Path('/fake'), Path('/fake'), 'test', Path('/unused'), 1000, profile)
+        engine.base_url = 'http://127.0.0.1:1'
+        requested = []
+        def open_request(request, timeout):
+            requested.append(timeout)
+            raise TimeoutError()
+        with patch.object(comparison.time, 'monotonic', return_value=50), patch.object(comparison.urllib.request, 'build_opener', return_value=SimpleNamespace(open=open_request)):
+            with self.assertRaisesRegex(comparison.ProtocolError, '^request_timeout$'):
+                engine.request('/v1/chat/completions', {})
+        self.assertEqual(requested, [300])
+        class Process:
+            stdout = io.BytesIO()
+            def poll(self): return 0
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(comparison.subprocess, 'Popen', return_value=Process()) as popen, patch.object(comparison.OwnedEngine, 'wait_ready'):
+                with comparison.OwnedEngine(Path('/fake'), Path('/fake'), Path('/fake'), 'test', Path(temporary), comparison.time.monotonic()+20, profile): pass
+            command = popen.call_args.args[0]
+            self.assertEqual(command[command.index('--reasoning-budget')+1], '128')
+        case = dict(id='x', part=1, text='Public text', expected_assessment='coerente')
+        row = comparison.execute_case(case, 'qwen3_5_9b', lambda *a: {}, lambda body: [], profile)
+        self.assertEqual(row['profile'], profile.version)
+        self.assertEqual(row['protocol']['reasoning_budget'], 128)
+
+    def test_profiles_are_part_of_frozen_checkpoint_and_aggregate_identity(self):
+        self.assertTrue(hasattr(comparison, 'PROFILES'), 'Explicit comparison profiles are missing')
+        old, new = comparison.PROFILES['original'], comparison.PROFILES['budget128']
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); source = root/'input.json'; source.write_text('{}')
+            comparison.freeze_inputs({'manifest': source}, root/'out', comparison.protocol_settings(old))
+            with self.assertRaises(ValueError):
+                comparison.freeze_inputs({'manifest': source}, root/'out', comparison.protocol_settings(new))
+            summary = comparison.aggregate_parts([], root/'new', 'qwen3_5_9b', {}, new)
+            self.assertEqual(summary['profile'], new.version)
+            self.assertEqual(summary['protocol']['reasoning_budget'], 128)
+            self.assertEqual(summary['protocol']['per_request_seconds'], 300)
+            self.assertEqual(summary['protocol']['per_part_seconds'], 780)
+            comparison.write_json(root/'new/part_1.json', {'model': 'qwen3_5_9b', 'part': 1, 'profile': new.version, 'input_hashes': {}, 'cases': []})
+            with self.assertRaises(ValueError):
+                comparison.aggregate_parts([], root/'new', 'qwen3_5_9b', {}, old)
+
+
 if __name__ == '__main__': unittest.main()
